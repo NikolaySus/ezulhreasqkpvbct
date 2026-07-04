@@ -1,2 +1,11 @@
+--extra-index-url https://download.pytorch.org/whl/cu126
+
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
+python-multipart==0.0.32
+redis==7.4.1
+rq==2.10.0
+pillow==11.3.0
+numpy==2.3.5
+torch==2.7.1+cu126
+torchvision==0.22.1+cu126

@@ -1,6 +1,6 @@
 # ezulhreasqkpvbct
 
-MVP-заготовка: фронтенд работает на VPS, локальный FastAPI backend работает на ПК и доступен серверу через reverse SSH tunnel.
+MVP-заготовка: фронтенд работает на VPS, локальный FastAPI backend работает на ПК, ставит задачи сегментации в Redis/RQ и запускает PyTorch inference на локальной NVIDIA GPU.
 
 ## Backend на локальном ПК
 
@@ -12,6 +12,19 @@ docker compose -f docker-compose.backend.yml up -d --build
 
 ```bash
 curl http://127.0.0.1:8001/api/health
+```
+
+Загрузка изображения на сегментацию:
+
+```bash
+curl -F "image=@/path/to/image.jpg" http://127.0.0.1:8001/api/segment
+```
+
+Ответ вернет `job_id`. Статус и результат:
+
+```bash
+curl http://127.0.0.1:8001/api/jobs/<job_id>
+curl -o result.png http://127.0.0.1:8001/api/jobs/<job_id>/result
 ```
 
 ## Reverse SSH tunnel с ПК на VPS

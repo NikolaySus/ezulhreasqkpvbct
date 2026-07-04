@@ -3,106 +3,254 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>MVP Frontend</title>
+    <title>Image Segmentation MVP</title>
     <style>
       :root {
         color-scheme: light dark;
         font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: #f5f7fa;
+        background: #f4f6f8;
         color: #1f2933;
       }
       body {
-        min-height: 100vh;
         margin: 0;
-        display: grid;
-        place-items: center;
+        min-height: 100vh;
       }
       main {
-        width: min(92vw, 640px);
-        padding: 40px;
-        border: 1px solid #d9dee7;
-        border-radius: 8px;
-        background: #ffffff;
-        box-shadow: 0 12px 30px rgba(31, 41, 51, 0.08);
+        width: min(1120px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 32px 0;
+      }
+      header {
+        margin-bottom: 24px;
       }
       h1 {
-        margin: 0 0 12px;
-        font-size: clamp(2rem, 6vw, 4rem);
+        margin: 0 0 8px;
+        font-size: clamp(2rem, 5vw, 3.5rem);
         line-height: 1;
       }
       p {
-        margin: 0 0 24px;
-        font-size: 1.125rem;
+        margin: 0;
         color: #52616f;
+        font-size: 1.0625rem;
       }
-      dl {
+      .workspace {
         display: grid;
-        grid-template-columns: max-content 1fr;
-        gap: 10px 16px;
-        margin: 0;
+        grid-template-columns: 340px 1fr;
+        gap: 24px;
+        align-items: start;
       }
-      dt {
-        color: #52616f;
+      .panel,
+      .preview {
+        border: 1px solid #d9dee7;
+        border-radius: 8px;
+        background: #ffffff;
       }
-      dd {
-        margin: 0;
+      .panel {
+        padding: 20px;
+      }
+      label {
+        display: block;
+        margin-bottom: 10px;
         font-weight: 650;
+      }
+      input[type="file"] {
+        width: 100%;
+        margin-bottom: 16px;
+      }
+      button {
+        width: 100%;
+        min-height: 44px;
+        border: 0;
+        border-radius: 8px;
+        background: #0f766e;
+        color: #ffffff;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+      .status {
+        min-height: 24px;
+        margin-top: 16px;
+        font-size: 0.95rem;
+        color: #52616f;
         overflow-wrap: anywhere;
+      }
+      .preview {
+        min-height: 520px;
+        padding: 20px;
+      }
+      .images {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+      figure {
+        margin: 0;
+      }
+      figcaption {
+        margin-bottom: 8px;
+        color: #52616f;
+        font-size: 0.9rem;
+        font-weight: 650;
+      }
+      img {
+        display: block;
+        width: 100%;
+        min-height: 260px;
+        max-height: 640px;
+        object-fit: contain;
+        border-radius: 8px;
+        background: #e8edf3;
+      }
+      .empty {
+        display: grid;
+        min-height: 480px;
+        place-items: center;
+        color: #52616f;
+        text-align: center;
+      }
+      @media (max-width: 860px) {
+        .workspace,
+        .images {
+          grid-template-columns: 1fr;
+        }
       }
       @media (prefers-color-scheme: dark) {
         :root {
           background: #111827;
           color: #f9fafb;
         }
-        main {
+        p,
+        .status,
+        figcaption,
+        .empty {
+          color: #d1d5db;
+        }
+        .panel,
+        .preview {
           background: #1f2937;
           border-color: #374151;
-          box-shadow: none;
         }
-        p,
-        dt {
-          color: #d1d5db;
+        img {
+          background: #111827;
         }
       }
     </style>
   </head>
   <body>
     <main>
-      <h1>Hello Frontend</h1>
-      <p>Фронтенд запущен на VPS, API проксируется на локальный ПК через SSH tunnel.</p>
-      <dl>
-        <dt>API</dt>
-        <dd id="api-status">checking...</dd>
-        <dt>Message</dt>
-        <dd id="api-message">checking...</dd>
-      </dl>
+      <header>
+        <h1>Image Segmentation</h1>
+        <p>Загрузите изображение, backend поставит задачу в очередь и обработает ее на локальной GPU.</p>
+      </header>
+
+      <section class="workspace">
+        <form class="panel" id="segment-form">
+          <label for="image-input">Image</label>
+          <input id="image-input" name="image" type="file" accept="image/png,image/jpeg,image/webp" required>
+          <button id="submit-button" type="submit">Segment image</button>
+          <div class="status" id="status">Backend status: checking...</div>
+        </form>
+
+        <div class="preview" id="preview">
+          <div class="empty">Upload an image to see the segmentation overlay.</div>
+        </div>
+      </section>
     </main>
+
     <script>
-      async function loadBackendStatus() {
-        const statusNode = document.querySelector("#api-status");
-        const messageNode = document.querySelector("#api-message");
+      const form = document.querySelector("#segment-form");
+      const input = document.querySelector("#image-input");
+      const button = document.querySelector("#submit-button");
+      const statusNode = document.querySelector("#status");
+      const preview = document.querySelector("#preview");
 
+      async function checkBackend() {
         try {
-          const [healthResponse, helloResponse] = await Promise.all([
-            fetch("/api/health", { cache: "no-store" }),
-            fetch("/api/hello", { cache: "no-store" }),
-          ]);
-
-          if (!healthResponse.ok || !helloResponse.ok) {
-            throw new Error("Backend response was not OK");
-          }
-
-          const health = await healthResponse.json();
-          const hello = await helloResponse.json();
-          statusNode.textContent = `${health.status} (${health.service})`;
-          messageNode.textContent = hello.message;
+          const response = await fetch("/api/health", { cache: "no-store" });
+          const data = await response.json();
+          statusNode.textContent = `Backend: ${data.status}, redis: ${data.redis}, cuda: ${data.cuda_available}`;
         } catch (error) {
-          statusNode.textContent = "unavailable";
-          messageNode.textContent = "Local backend tunnel is not connected";
+          statusNode.textContent = "Backend unavailable";
         }
       }
 
-      loadBackendStatus();
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const file = input.files[0];
+        if (!file) {
+          return;
+        }
+
+        button.disabled = true;
+        statusNode.textContent = "Uploading image...";
+        showPreview(file);
+
+        try {
+          const body = new FormData();
+          body.append("image", file);
+
+          const response = await fetch("/api/segment", { method: "POST", body });
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.detail || "Upload failed");
+          }
+
+          await pollJob(data.job_id);
+        } catch (error) {
+          statusNode.textContent = error.message || "Segmentation failed";
+        } finally {
+          button.disabled = false;
+        }
+      });
+
+      function showPreview(file) {
+        const url = URL.createObjectURL(file);
+        preview.innerHTML = `
+          <div class="images">
+            <figure>
+              <figcaption>Original</figcaption>
+              <img src="${url}" alt="Original image">
+            </figure>
+            <figure>
+              <figcaption>Segmentation overlay</figcaption>
+              <img id="result-image" alt="Segmentation result">
+            </figure>
+          </div>
+        `;
+      }
+
+      async function pollJob(jobId) {
+        statusNode.textContent = `Queued: ${jobId}`;
+
+        while (true) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          const response = await fetch(`/api/jobs/${jobId}`, { cache: "no-store" });
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.detail || "Job status request failed");
+          }
+
+          statusNode.textContent = `Job ${jobId}: ${data.status}`;
+
+          if (data.status === "finished") {
+            const result = document.querySelector("#result-image");
+            result.src = `${data.result_url}?t=${Date.now()}`;
+            statusNode.textContent = "Segmentation finished";
+            return;
+          }
+
+          if (data.status === "failed") {
+            throw new Error(data.error || "Segmentation job failed");
+          }
+        }
+      }
+
+      checkBackend();
     </script>
   </body>
 </html>

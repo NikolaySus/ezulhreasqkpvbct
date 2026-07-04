@@ -1,7 +1,51 @@
 services:
-  backend:
-    build: .
-    container_name: ezulhreasqkpvbct-backend
+  redis:
+    image: redis:7.4-alpine
+    container_name: ezulhreasqkpvbct-redis
     restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+
+  api:
+    build: .
+    container_name: ezulhreasqkpvbct-api
+    restart: unless-stopped
+    depends_on:
+      - redis
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATA_DIR: /data
+      TORCH_HOME: /models/torch
+      MAX_UPLOAD_BYTES: 10485760
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    gpus: all
     ports:
       - "127.0.0.1:8001:8000"
+    volumes:
+      - backend-data:/data
+      - model-cache:/models
+
+  worker:
+    build: .
+    container_name: ezulhreasqkpvbct-worker
+    restart: unless-stopped
+    depends_on:
+      - redis
+    command: ["python", "-m", "app.worker"]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATA_DIR: /data
+      TORCH_HOME: /models/torch
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    gpus: all
+    volumes:
+      - backend-data:/data
+      - model-cache:/models
+
+volumes:
+  backend-data:
+  model-cache:
+  redis-data:
