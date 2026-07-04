@@ -1,0 +1,13 @@
+[Unit]
+Description=Reverse SSH tunnel from local backend to ezulhreasqkpvbct VPS
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/ssh -N -T -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=accept-new -i %h/.ssh/id_ed25519 -R 127.0.0.1:18080:127.0.0.1:8001 root@109.73.203.55
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

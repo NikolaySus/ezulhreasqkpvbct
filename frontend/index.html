@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MVP Frontend</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f5f7fa;
+        color: #1f2933;
+      }
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+      }
+      main {
+        width: min(92vw, 640px);
+        padding: 40px;
+        border: 1px solid #d9dee7;
+        border-radius: 8px;
+        background: #ffffff;
+        box-shadow: 0 12px 30px rgba(31, 41, 51, 0.08);
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: clamp(2rem, 6vw, 4rem);
+        line-height: 1;
+      }
+      p {
+        margin: 0 0 24px;
+        font-size: 1.125rem;
+        color: #52616f;
+      }
+      dl {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 10px 16px;
+        margin: 0;
+      }
+      dt {
+        color: #52616f;
+      }
+      dd {
+        margin: 0;
+        font-weight: 650;
+        overflow-wrap: anywhere;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          background: #111827;
+          color: #f9fafb;
+        }
+        main {
+          background: #1f2937;
+          border-color: #374151;
+          box-shadow: none;
+        }
+        p,
+        dt {
+          color: #d1d5db;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Hello Frontend</h1>
+      <p>Фронтенд запущен на VPS, API проксируется на локальный ПК через SSH tunnel.</p>
+      <dl>
+        <dt>API</dt>
+        <dd id="api-status">checking...</dd>
+        <dt>Message</dt>
+        <dd id="api-message">checking...</dd>
+      </dl>
+    </main>
+    <script>
+      async function loadBackendStatus() {
+        const statusNode = document.querySelector("#api-status");
+        const messageNode = document.querySelector("#api-message");
+
+        try {
+          const [healthResponse, helloResponse] = await Promise.all([
+            fetch("/api/health", { cache: "no-store" }),
+            fetch("/api/hello", { cache: "no-store" }),
+          ]);
+
+          if (!healthResponse.ok || !helloResponse.ok) {
+            throw new Error("Backend response was not OK");
+          }
+
+          const health = await healthResponse.json();
+          const hello = await helloResponse.json();
+          statusNode.textContent = `${health.status} (${health.service})`;
+          messageNode.textContent = hello.message;
+        } catch (error) {
+          statusNode.textContent = "unavailable";
+          messageNode.textContent = "Local backend tunnel is not connected";
+        }
+      }
+
+      loadBackendStatus();
+    </script>
+  </body>
+</html>

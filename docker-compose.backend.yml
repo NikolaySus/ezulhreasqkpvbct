@@ -1,0 +1,7 @@
+services:
+  backend:
+    build: .
+    container_name: ezulhreasqkpvbct-backend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8001:8000"
