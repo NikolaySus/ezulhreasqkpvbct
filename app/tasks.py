@@ -4,13 +4,12 @@ from time import monotonic
 import cv2
 import numpy as np
 from rq import get_current_job
-import segmentation_models_pytorch as smp
 import torch
-from torch import nn
 import torch.nn.functional as F
 from PIL import Image, ImageDraw
 
 from app.settings import INFERENCE_MODEL_PATH
+from training.train_global_context_segformer import GlobalContextSegformer, global_roi_for_patch
 
 Image.MAX_IMAGE_PIXELS = None
 
@@ -36,7 +35,6 @@ PALETTE = np.array(
 )
 
 _MODEL = None
-_CLASSIFICATION_HEAD = None
 _DEVICE = None
 PROGRESS_SAVE_INTERVAL_SECONDS = 0.5
 TALCOSE_THRESHOLD = 0.10
@@ -106,20 +104,8 @@ class _Prediction:
         self.tile_centers = tile_centers
 
 
-class _ClassificationHead(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-        self.pool = nn.AdaptiveAvgPool2d(1)
-        self.dropout = nn.Dropout(0.2)
-        self.linear = nn.Linear(512, 1)
-
-    def forward(self, features: torch.Tensor) -> torch.Tensor:
-        pooled = self.pool(features).flatten(1)
-        return self.linear(self.dropout(pooled)).squeeze(1)
-
-
 def _predict(image: np.ndarray, progress: "_ProgressReporter") -> _Prediction:
-    model, classification_head, device = _load_model()
+    model, device = _load_model()
 
     h, w = image.shape[:2]
     tile_size = TILE_SIZE
@@ -127,6 +113,7 @@ def _predict(image: np.ndarray, progress: "_ProgressReporter") -> _Prediction:
     pad = tile_size // 2
 
     gray = _to_normalized_gray_image(image)
+    global_feature = _global_feature(model, device, gray)
     padded = np.pad(gray, ((pad, pad), (pad, pad)), mode="reflect")
     ph, pw = padded.shape[:2]
 
@@ -159,7 +146,21 @@ def _predict(image: np.ndarray, progress: "_ProgressReporter") -> _Prediction:
     for offset in range(0, len(coords), batch_size):
         chunk = coords[offset : offset + batch_size]
         batch = np.stack([padded[y : y + tile_size, x : x + tile_size] for y, x in chunk], axis=0)
-        probabilities, difficulty_probabilities = _run_batch(model, classification_head, device, batch)
+        rois = np.array(
+            [
+                global_roi_for_patch(
+                    x - pad,
+                    y - pad,
+                    tile_size,
+                    tile_size,
+                    w,
+                    h,
+                )
+                for y, x in chunk
+            ],
+            dtype=np.float32,
+        )
+        probabilities, difficulty_probabilities = _run_batch(model, device, batch, global_feature, rois)
 
         for (y, x), probs, difficulty_probability in zip(chunk, probabilities, difficulty_probabilities):
             accum[y : y + tile_size, x : x + tile_size] += probs * window[..., None]
@@ -198,53 +199,65 @@ def _predict(image: np.ndarray, progress: "_ProgressReporter") -> _Prediction:
 
 
 def _load_model():
-    global _MODEL, _CLASSIFICATION_HEAD, _DEVICE
+    global _MODEL, _DEVICE
 
-    if _MODEL is None or _CLASSIFICATION_HEAD is None:
+    if _MODEL is None:
         if not INFERENCE_MODEL_PATH.exists():
             raise FileNotFoundError(
                 f"Inference checkpoint not found: {INFERENCE_MODEL_PATH}. "
-                "Place recommended.pth under model-artifacts/ml-days-2/segformer-classification/."
+                "Place recommended.pth under model-artifacts/ml-days-2/global-context-segformer/."
             )
 
         _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model = smp.Segformer(
-            encoder_name="mit_b2",
-            encoder_weights=None,
-            in_channels=1,
-            classes=NUM_CLASSES,
-        )
-        classification_head = _ClassificationHead()
+        model = GlobalContextSegformer()
         checkpoint = torch.load(INFERENCE_MODEL_PATH, map_location=_DEVICE, weights_only=False)
-        if "classification_head_state_dict" not in checkpoint:
-            raise KeyError("Inference checkpoint must contain classification_head_state_dict")
-        model.load_state_dict(checkpoint["model_state_dict"])
-        classification_head.load_state_dict(checkpoint["classification_head_state_dict"])
+        required_keys = {
+            "local_model_state_dict",
+            "global_model_state_dict",
+            "context_adapter_state_dict",
+            "classification_head_state_dict",
+        }
+        missing_keys = required_keys.difference(checkpoint)
+        if missing_keys:
+            raise KeyError(f"Inference checkpoint is missing keys: {sorted(missing_keys)}")
+        model.local_model.load_state_dict(checkpoint["local_model_state_dict"])
+        model.global_model.load_state_dict(checkpoint["global_model_state_dict"])
+        model.context_adapter.load_state_dict(checkpoint["context_adapter_state_dict"])
+        model.classification_head.load_state_dict(checkpoint["classification_head_state_dict"])
         model.to(_DEVICE).eval()
-        classification_head.to(_DEVICE).eval()
         if _DEVICE.type == "cuda":
             model.half()
-            classification_head.half()
         _MODEL = model
-        _CLASSIFICATION_HEAD = classification_head
 
-    return _MODEL, _CLASSIFICATION_HEAD, _DEVICE
+    return _MODEL, _DEVICE
+
+
+@torch.inference_mode()
+def _global_feature(model: GlobalContextSegformer, device: torch.device, image: np.ndarray) -> torch.Tensor:
+    tensor = _preprocess_global_image(image).to(device)
+    if device.type == "cuda":
+        tensor = tensor.half()
+    return model.global_model.encoder(tensor)[-1]
 
 
 @torch.inference_mode()
 def _run_batch(
-    model: nn.Module,
-    classification_head: _ClassificationHead,
+    model: GlobalContextSegformer,
     device: torch.device,
     batch: np.ndarray,
+    global_feature: torch.Tensor,
+    rois: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     tensor = _preprocess_batch(batch).to(device)
+    roi_tensor = torch.from_numpy(rois).to(device)
     if device.type == "cuda":
         tensor = tensor.half()
-    features = model.encoder(tensor)
-    decoder_output = model.decoder(features)
-    segmentation_logits = model.segmentation_head(decoder_output)
-    classification_logits = classification_head(features[-1])
+    local_features = list(model.local_model.encoder(tensor))
+    expanded_global_feature = global_feature.expand(tensor.shape[0], -1, -1, -1)
+    local_features[-1] = model.context_adapter(local_features[-1], expanded_global_feature, roi_tensor)
+    decoder_output = model.local_model.decoder(local_features)
+    segmentation_logits = model.local_model.segmentation_head(decoder_output)
+    classification_logits = model.classification_head(local_features[-1])
     segmentation_probabilities = F.softmax(segmentation_logits.float(), dim=1)
     difficulty_probabilities = torch.sigmoid(classification_logits.float())
     return (
@@ -257,6 +270,21 @@ def _preprocess_batch(batch: np.ndarray) -> torch.Tensor:
     tensor = batch.astype(np.float32) / 255.0
     tensor = (tensor - GRAY_MEAN) / GRAY_STD
     return torch.from_numpy(tensor[:, None, :, :]).contiguous()
+
+
+def _preprocess_global_image(image: np.ndarray) -> torch.Tensor:
+    height, width = image.shape[:2]
+    scale = TILE_SIZE / max(height, width)
+    resized = cv2.resize(
+        image,
+        (max(1, int(round(width * scale))), max(1, int(round(height * scale)))),
+        interpolation=cv2.INTER_AREA,
+    )
+    canvas = np.zeros((TILE_SIZE, TILE_SIZE), dtype=np.uint8)
+    y0 = (TILE_SIZE - resized.shape[0]) // 2
+    x0 = (TILE_SIZE - resized.shape[1]) // 2
+    canvas[y0 : y0 + resized.shape[0], x0 : x0 + resized.shape[1]] = resized
+    return _preprocess_batch(canvas[None, ...])
 
 
 def _tile_intersects_predicted_ore(
