@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Image Segmentation MVP</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f4f6f8;
+        color: #1f2933;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+      }
+      main {
+        width: min(1120px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 32px 0;
+      }
+      header {
+        margin-bottom: 20px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: clamp(2rem, 5vw, 3.5rem);
+        line-height: 1;
+      }
+      p {
+        margin: 0;
+        color: #52616f;
+        font-size: 1.0625rem;
+      }
+      .tabs {
+        display: flex;
+        gap: 8px;
+        margin: 0 0 24px;
+        border-bottom: 1px solid #d9dee7;
+      }
+      .tab-button {
+        width: auto;
+        min-height: 42px;
+        padding: 0 18px;
+        border: 0;
+        border-radius: 8px 8px 0 0;
+        background: transparent;
+        color: #52616f;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .tab-button[aria-selected="true"] {
+        background: #ffffff;
+        color: #0f766e;
+        box-shadow: inset 0 -3px 0 #0f766e;
+      }
+      .tab-panel[hidden] {
+        display: none;
+      }
+      .workspace {
+        display: grid;
+        grid-template-columns: 340px 1fr;
+        gap: 24px;
+        align-items: start;
+      }
+      .panel,
+      .preview,
+      .placeholder {
+        border: 1px solid #d9dee7;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+      .panel,
+      .placeholder {
+        padding: 20px;
+      }
+      label {
+        display: block;
+        margin-bottom: 10px;
+        font-weight: 650;
+      }
+      input[type="file"] {
+        width: 100%;
+        margin-bottom: 16px;
+      }
+      button {
+        width: 100%;
+        min-height: 44px;
+        border: 0;
+        border-radius: 8px;
+        background: #0f766e;
+        color: #ffffff;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+      .status {
+        min-height: 24px;
+        margin-top: 16px;
+        font-size: 0.95rem;
+        color: #52616f;
+        overflow-wrap: anywhere;
+      }
+      .preview {
+        min-height: 520px;
+        padding: 20px;
+      }
+      .images {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+      figure {
+        margin: 0;
+      }
+      figcaption {
+        margin-bottom: 8px;
+        color: #52616f;
+        font-size: 0.9rem;
+        font-weight: 650;
+      }
+      img {
+        display: block;
+        width: 100%;
+        min-height: 260px;
+        max-height: 640px;
+        object-fit: contain;
+        border-radius: 8px;
+        background: #e8edf3;
+      }
+      .empty {
+        display: grid;
+        min-height: 480px;
+        place-items: center;
+        color: #52616f;
+        text-align: center;
+      }
+      .placeholder {
+        min-height: 360px;
+      }
+      .placeholder h2 {
+        margin: 0 0 12px;
+        font-size: 1.5rem;
+      }
+      .placeholder dl {
+        display: grid;
+        grid-template-columns: max-content minmax(0, 1fr);
+        gap: 10px 16px;
+        margin: 20px 0 0;
+      }
+      .placeholder dt {
+        color: #52616f;
+      }
+      .placeholder dd {
+        margin: 0;
+        font-weight: 650;
+        overflow-wrap: anywhere;
+      }
+      .annotation-frame {
+        width: 100%;
+        min-height: 78vh;
+        border: 1px solid #d9dee7;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        padding: 0 10px;
+        border-radius: 999px;
+        background: #e8edf3;
+        color: #1f2933;
+        font-weight: 750;
+      }
+      .badge.unlocked {
+        background: #d1fae5;
+        color: #065f46;
+      }
+      @media (max-width: 860px) {
+        .workspace,
+        .images {
+          grid-template-columns: 1fr;
+        }
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          background: #111827;
+          color: #f9fafb;
+        }
+        p,
+        .status,
+        figcaption,
+        .empty,
+        .placeholder dt {
+          color: #d1d5db;
+        }
+        .tabs {
+          border-bottom-color: #374151;
+        }
+        .tab-button {
+          color: #d1d5db;
+        }
+        .tab-button[aria-selected="true"],
+        .panel,
+        .preview,
+        .placeholder {
+          background: #1f2937;
+          border-color: #374151;
+        }
+        img,
+        .badge {
+          background: #111827;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Image Segmentation</h1>
+        <p>Загрузите изображение для инференса или проверьте состояние будущей доразметки.</p>
+      </header>
+
+      <nav class="tabs" aria-label="Workspace tabs">
+        <button class="tab-button" type="button" data-tab="inference" aria-selected="true">Инференс</button>
+        <button class="tab-button" type="button" data-tab="annotation" aria-selected="false">Доразметка</button>
+      </nav>
+
+      <section class="tab-panel" id="inference-tab">
+        <section class="workspace">
+          <form class="panel" id="segment-form">
+            <label for="image-input">Image</label>
+            <input id="image-input" name="image" type="file" accept="image/png,image/jpeg,image/webp" required>
+            <button id="submit-button" type="submit">Segment image</button>
+            <div class="status" id="status">Backend status: checking...</div>
+          </form>
+
+          <div class="preview" id="preview">
+            <div class="empty">Upload an image to see the segmentation overlay.</div>
+          </div>
+        </section>
+      </section>
+
+      <section class="tab-panel" id="annotation-tab" hidden>
+        <iframe class="annotation-frame" src="/api/annotation/nornik/" title="Доразметка"></iframe>
+      </section>
+    </main>
+
+    <script>
+      const form = document.querySelector("#segment-form");
+      const input = document.querySelector("#image-input");
+      const button = document.querySelector("#submit-button");
+      const statusNode = document.querySelector("#status");
+      const preview = document.querySelector("#preview");
+      const tabButtons = document.querySelectorAll(".tab-button");
+      const inferenceTab = document.querySelector("#inference-tab");
+      const annotationTab = document.querySelector("#annotation-tab");
+
+      tabButtons.forEach((tabButton) => {
+        tabButton.addEventListener("click", () => selectTab(tabButton.dataset.tab));
+      });
+
+      function selectTab(tab) {
+        tabButtons.forEach((tabButton) => {
+          tabButton.setAttribute("aria-selected", String(tabButton.dataset.tab === tab));
+        });
+
+        inferenceTab.hidden = tab !== "inference";
+        annotationTab.hidden = tab !== "annotation";
+
+      }
+
+      async function checkBackend() {
+        try {
+          const response = await fetch("/api/health", { cache: "no-store" });
+          const data = await response.json();
+          statusNode.textContent = `Backend: ${data.status}, redis: ${data.redis}, cuda: ${data.cuda_available}`;
+        } catch (error) {
+          statusNode.textContent = "Backend unavailable";
+        }
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const file = input.files[0];
+        if (!file) {
+          return;
+        }
+
+        button.disabled = true;
+        statusNode.textContent = "Uploading image...";
+        showPreview(file);
+
+        try {
+          const body = new FormData();
+          body.append("image", file);
+
+          const response = await fetch("/api/segment", { method: "POST", body });
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.detail || "Upload failed");
+          }
+
+          await pollJob(data.job_id);
+        } catch (error) {
+          statusNode.textContent = error.message || "Segmentation failed";
+        } finally {
+          button.disabled = false;
+        }
+      });
+
+      function showPreview(file) {
+        const url = URL.createObjectURL(file);
+        preview.innerHTML = `
+          <div class="images">
+            <figure>
+              <figcaption>Original</figcaption>
+              <img src="${url}" alt="Original image">
+            </figure>
+            <figure>
+              <figcaption>Segmentation overlay</figcaption>
+              <img id="result-image" alt="Segmentation result">
+            </figure>
+          </div>
+        `;
+      }
+
+      async function pollJob(jobId) {
+        statusNode.textContent = `Queued: ${jobId}`;
+
+        while (true) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          const response = await fetch(`/api/jobs/${jobId}`, { cache: "no-store" });
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.detail || "Job status request failed");
+          }
+
+          statusNode.textContent = jobStatusText(jobId, data);
+
+          if (data.status === "finished") {
+            const result = document.querySelector("#result-image");
+            result.src = `${data.result_url}?t=${Date.now()}`;
+            statusNode.textContent = "Segmentation finished";
+            return;
+          }
+
+          if (data.status === "failed") {
+            throw new Error(data.error || "Segmentation job failed");
+          }
+        }
+      }
+
+      function jobStatusText(jobId, data) {
+        if (data.status === "queued" && Number.isInteger(data.queue_position)) {
+          if (data.queue_position > 1) {
+            return `Похоже, кто-то решил протестировать систему параллельно с Вами. Ваше место в очереди: ${data.queue_position}.`;
+          }
+          return "Ваше место в очереди: 1. Задача скоро начнет обрабатываться.";
+        }
+
+        if (data.status === "started") {
+          return "Изображение обрабатывается на GPU...";
+        }
+
+        return `Job ${jobId}: ${data.status}`;
+      }
+
+      checkBackend();
+    </script>
+  </body>
+</html>

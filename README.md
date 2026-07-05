@@ -1,6 +1,6 @@
 # ezulhreasqkpvbct
 
-MVP-заготовка: фронтенд работает на VPS, локальный FastAPI backend работает на ПК, ставит задачи сегментации в Redis/RQ и запускает PyTorch inference на локальной NVIDIA GPU.
+MVP-заготовка: публичный nginx на VPS проксирует сайт на локальный FastAPI backend через reverse SSH tunnel. Backend отдает Jinja frontend, ставит задачи сегментации в Redis/RQ и запускает PyTorch inference на локальной NVIDIA GPU.
 
 ## Backend на локальном ПК
 
@@ -29,7 +29,7 @@ curl -o result.png http://127.0.0.1:8001/api/jobs/<job_id>/result
 
 ## Доразметка
 
-Файлы будущей системы доразметки лежат в локальной папке `annotation-data/`; она игнорируется git.
+Система доразметки Nornik встроена во вкладку `Доразметка`. Ее рабочие файлы лежат в локальной папке `annotation-data/nornik/`; вся `annotation-data/` игнорируется git.
 
 По умолчанию backend запускается в заблокированном режиме:
 

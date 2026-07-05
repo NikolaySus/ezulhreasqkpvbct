@@ -1,0 +1,1987 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Nornik Talc Segmentation</title>
+    <style>
+      :root {
+        --bg: #f5f6f2;
+        --panel: #ffffff;
+        --ink: #1d2420;
+        --muted: #667068;
+        --line: #d7ddd5;
+        --accent: #136f63;
+        --accent-2: #0b5cad;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      header {
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--line);
+        background: #eef1eb;
+        position: sticky;
+        top: 0;
+        z-index: 5;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 18px;
+        line-height: 1.2;
+        font-weight: 700;
+      }
+
+      select, input, button {
+        font: inherit;
+      }
+
+      select {
+        min-width: min(520px, 58vw);
+        max-width: 100%;
+        padding: 8px 10px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: white;
+        color: var(--ink);
+      }
+
+      button {
+        border: 1px solid var(--accent);
+        color: white;
+        background: var(--accent);
+        border-radius: 6px;
+        padding: 8px 12px;
+        cursor: pointer;
+      }
+
+      button.secondary {
+        background: white;
+        color: var(--accent);
+      }
+
+      button:disabled {
+        cursor: progress;
+        opacity: 0.6;
+      }
+
+      .button-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      main {
+        display: grid;
+        grid-template-columns: minmax(280px, 360px) 1fr;
+        min-height: calc(100vh - 62px);
+      }
+
+      aside {
+        border-right: 1px solid var(--line);
+        background: #fbfcfa;
+        padding: 14px;
+        overflow: auto;
+      }
+
+      .settings-group {
+        border-top: 1px solid var(--line);
+        padding-top: 14px;
+        margin-top: 14px;
+      }
+
+      .settings-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+
+      h2 {
+        margin: 0;
+        font-size: 15px;
+      }
+
+      label {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        align-items: center;
+        margin: 9px 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      input[type="number"] {
+        width: 78px;
+        padding: 6px 7px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        color: var(--ink);
+        background: white;
+      }
+
+      .range-hint {
+        display: block;
+        grid-column: 1 / 2;
+        margin-top: -7px;
+        color: #8a948c;
+        font-size: 11px;
+        line-height: 1.2;
+      }
+
+      .input-tools {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+
+      .compact-button {
+        padding: 6px 8px;
+        line-height: 1;
+      }
+
+      .toggle-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin: 9px 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .toggle-row input {
+        width: auto;
+      }
+
+      .source-stage {
+        position: relative;
+      }
+
+      .source-excluded-cross {
+        display: none;
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .source-excluded-cross::before,
+      .source-excluded-cross::after {
+        content: "";
+        position: absolute;
+        left: 8%;
+        right: 8%;
+        top: 50%;
+        height: max(8px, 1.2vw);
+        border-radius: 999px;
+        background: rgba(220, 0, 0, 0.78);
+        box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.58);
+      }
+
+      .source-excluded-cross::before {
+        transform: rotate(35deg);
+      }
+
+      .source-excluded-cross::after {
+        transform: rotate(-35deg);
+      }
+
+      .source-stage.is-excluded .source-excluded-cross {
+        display: block;
+      }
+
+      .content {
+        padding: 14px;
+        overflow: auto;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(320px, 1fr));
+        gap: 14px;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+        min-height: 310px;
+      }
+
+      .panel-head {
+        min-height: 42px;
+        padding: 9px 11px;
+        border-bottom: 1px solid var(--line);
+        background: #fafbf8;
+      }
+
+      .panel-title {
+        font-weight: 700;
+        font-size: 14px;
+      }
+
+      .stats {
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.25;
+      }
+
+      .image-wrap {
+        min-height: 270px;
+        display: grid;
+        place-items: center;
+        background: #20241f;
+      }
+
+      .color-markup-stage {
+        position: relative;
+        display: inline-grid;
+        max-width: 100%;
+      }
+
+      .color-markup-stage > img,
+      .illumination-compare,
+      .illumination-compare img {
+        grid-area: 1 / 1;
+      }
+
+      .illumination-compare {
+        position: absolute;
+        inset: 0;
+        display: none;
+        overflow: hidden;
+        cursor: ew-resize;
+        --split: 50%;
+      }
+
+      .illumination-compare.is-visible {
+        display: block;
+      }
+
+      .illumination-compare img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        max-width: none;
+        object-fit: contain;
+      }
+
+      .illumination-after {
+        position: absolute;
+        inset: 0;
+        width: var(--split);
+        overflow: hidden;
+      }
+
+      .illumination-after img {
+        width: calc(100% / max(var(--split-ratio), 0.001));
+      }
+
+      .illumination-divider {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: var(--split);
+        width: 2px;
+        background: rgba(255, 255, 255, 0.92);
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.38);
+        transform: translateX(-1px);
+      }
+
+      .illumination-label {
+        position: absolute;
+        top: 8px;
+        padding: 3px 7px;
+        border-radius: 5px;
+        background: rgba(0, 0, 0, 0.62);
+        color: white;
+        font-size: 12px;
+        line-height: 1.2;
+        pointer-events: none;
+      }
+
+      .illumination-label.after {
+        left: 8px;
+      }
+
+      .illumination-label.before {
+        right: 8px;
+      }
+
+      .sketch-stage {
+        position: relative;
+        width: 100%;
+      }
+
+      .sketch-stage img {
+        width: 100%;
+      }
+
+      .sketch-stage svg {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        cursor: crosshair;
+      }
+
+      img {
+        display: block;
+        max-width: 100%;
+        height: auto;
+      }
+
+      .status {
+        min-height: 24px;
+        color: var(--muted);
+        font-size: 13px;
+        margin-top: 12px;
+        white-space: pre-line;
+      }
+
+      .readonly-banner {
+        padding: 10px 14px;
+        border-bottom: 1px solid #e3d18a;
+        background: #fff7d6;
+        color: #5f4b00;
+        font-size: 13px;
+        line-height: 1.35;
+      }
+
+      @media (max-width: 1040px) {
+        main { grid-template-columns: 1fr; }
+        aside { border-right: 0; border-bottom: 1px solid var(--line); }
+      }
+
+      @media (max-width: 760px) {
+        header { align-items: stretch; flex-direction: column; }
+        select { width: 100%; min-width: 0; }
+        .grid { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Демонстрация областей оталькования</h1>
+      <select id="imageSelect" aria-label="Изображение">
+        {% for image in images %}
+          <option value="{{ image }}" {% if image == default_image %}selected{% endif %}>{{ image }}</option>
+        {% endfor %}
+      </select>
+      <button id="refreshButton" type="button">Пересчитать</button>
+      <button id="resetSettingsButton" class="secondary" type="button">Сбросить настройки</button>
+    </header>
+
+    {% if not editing_enabled %}
+      <div class="readonly-banner">
+        Режим просмотра: сохранение параметров и правок доразметки заблокировано. Расчет авторазметки и экспорт доступны.
+      </div>
+    {% endif %}
+
+    <main>
+      <aside>
+        <div class="settings-group" style="border-top:0;margin-top:0;padding-top:0">
+          <label class="toggle-row"><input id="excludeFromExportsInput" type="checkbox"> Исключить из архивов</label>
+        </div>
+
+        <div class="settings-group">
+          <div class="settings-title">
+            <h2>Цветовая авторазметка</h2>
+            <div class="button-row">
+              <button class="secondary" type="button" data-copy="a2">Копировать JSON</button>
+              <button class="secondary" type="button" data-import="a2">Импорт JSON</button>
+            </div>
+          </div>
+          <label>Подкластеры <input data-a2="matrix_subclusters" type="number" min="2" max="5" step="1" value="{{ approach2_defaults.matrix_subclusters }}"></label>
+          <label>Граница руды <input data-a2="ore_boundary_shift" type="number" min="-1" max="1" step="0.02" value="{{ approach2_defaults.ore_boundary_shift }}"></label>
+          <label>Квантиль талька <input data-a2="talc_dark_quantile" type="number" min="0.05" max="0.8" step="0.001" value="{{ approach2_defaults.talc_dark_quantile }}"></label>
+          <label>Мин. объект <input data-a2="min_component_area" type="number" min="0" max="5000" step="10" value="{{ approach2_defaults.min_component_area }}"></label>
+          <label>Морфология <input data-a2="morph_radius" type="number" min="0" max="8" step="1" value="{{ approach2_defaults.morph_radius }}"></label>
+          <label>Штраф резких краёв <input data-a2="edge_refinement_strength" type="number" min="0" max="1" step="0.05" value="{{ approach2_defaults.edge_refinement_strength }}"></label>
+          <label>Радиус градиента <input data-a2="edge_gradient_radius" type="number" min="1" max="8" step="1" value="{{ approach2_defaults.edge_gradient_radius }}"></label>
+          <label>Семена watershed <input data-a2="edge_seed_erosion_radius" type="number" min="0" max="8" step="1" value="{{ approach2_defaults.edge_seed_erosion_radius }}"></label>
+          <label>Зона перехода <input data-a2="edge_transition_radius" type="number" min="0" max="12" step="1" value="{{ approach2_defaults.edge_transition_radius }}"></label>
+          <label>Мягкий переход ΔE <input data-a2="edge_soft_delta_e" type="number" min="1" max="40" step="0.1" value="{{ approach2_defaults.edge_soft_delta_e }}"></label>
+          <label>Мин. регион <input data-a2="edge_min_region_area" type="number" min="0" max="5000" step="2" value="{{ approach2_defaults.edge_min_region_area }}"></label>
+          <label>Коррекция освещения <input data-a2="illumination_correction_strength" type="number" min="0" max="1" step="0.01" value="{{ approach2_defaults.illumination_correction_strength }}"></label>
+          <label>Эрозия руды <input data-a2="illumination_ore_erosion_radius" type="number" min="0" max="12" step="1" value="{{ approach2_defaults.illumination_ore_erosion_radius }}"></label>
+          <label>Мин. руды <input data-a2="illumination_min_ore_area" type="number" min="0" max="100000" step="500" value="{{ approach2_defaults.illumination_min_ore_area }}"></label>
+          <label>Выбросы руды <input data-a2="illumination_outlier_quantile" type="number" min="0" max="0.35" step="0.01" value="{{ approach2_defaults.illumination_outlier_quantile }}"></label>
+          <label>Макс. ΔL <input data-a2="illumination_max_delta_l" type="number" min="0" max="50" step="1" value="{{ approach2_defaults.illumination_max_delta_l }}"></label>
+          <label>Локальные тени <input data-a2="local_shadow_correction_strength" type="number" min="0" max="1" step="0.05" value="{{ approach2_defaults.local_shadow_correction_strength }}"></label>
+          <label>Радиус теней <input data-a2="local_shadow_radius" type="number" min="3" max="120" step="1" value="{{ approach2_defaults.local_shadow_radius }}"></label>
+          <label>Макс. тень ΔL <input data-a2="local_shadow_max_delta_l" type="number" min="0" max="40" step="1" value="{{ approach2_defaults.local_shadow_max_delta_l }}"></label>
+          <label>Барьер оттенка <input data-a2="local_shadow_chroma_barrier" type="number" min="0" max="3" step="0.1" value="{{ approach2_defaults.local_shadow_chroma_barrier }}"></label>
+          <label>Барьер светлоты <input data-a2="local_shadow_lightness_barrier" type="number" min="0" max="2" step="0.1" value="{{ approach2_defaults.local_shadow_lightness_barrier }}"></label>
+        </div>
+
+        <div class="settings-group">
+          <div class="settings-title">
+            <h2>Экспертный эскиз</h2>
+            <div class="button-row">
+              <button class="secondary" type="button" data-copy="sketch">Копировать JSON</button>
+              <button class="secondary" type="button" data-import="sketch">Импорт JSON</button>
+              <button class="secondary" id="downloadSketchPng" type="button">Скачать PNG</button>
+            </div>
+          </div>
+          <label>Мин. длина конца <input data-sketch="endpoint_min_branch_length" type="number" min="0" max="200" step="1" value="{{ sketch_defaults.endpoint_min_branch_length }}"></label>
+          <label>Макс. расстояние <input data-sketch="connection_max_distance" type="number" min="0" max="3000" step="10" value="{{ sketch_defaults.connection_max_distance }}"></label>
+          <label>Соседи по расстоянию <input data-sketch="connection_neighbors_per_endpoint" type="number" min="1" max="12" step="1" value="{{ sketch_defaults.connection_neighbors_per_endpoint }}"></label>
+          <label>Угловые соседи <input data-sketch="angular_neighbors_per_endpoint" type="number" min="0" max="4" step="1" value="{{ sketch_defaults.angular_neighbors_per_endpoint }}"></label>
+        </div>
+
+        <div class="settings-group">
+          <div class="settings-title">
+            <h2>Скорректированная авторазметка</h2>
+            <div class="button-row">
+              <button class="secondary" type="button" data-copy="correction">Копировать JSON</button>
+              <button class="secondary" type="button" data-import="correction">Импорт JSON</button>
+            </div>
+          </div>
+          <label>Лишний тальк <input data-correction="crop_excluded_talc_max_fraction" type="number" min="0" max="1" step="0.001" value="{{ correction_defaults.crop_excluded_talc_max_fraction }}"></label>
+          <label>Мин. площадь кропа <input data-correction="crop_min_area_ratio" type="number" min="0.1" max="1" step="0.01" value="{{ correction_defaults.crop_min_area_ratio }}"></label>
+          <label>Подрезка эскиза <span class="input-tools"><input id="cropSketchErosionInput" data-correction="crop_sketch_erosion_radius" type="number" min="0" max="5000" step="1" value="{{ correction_defaults.crop_sketch_erosion_radius }}"><button id="maxSketchErosionButton" class="secondary compact-button" type="button">max</button></span></label>
+        </div>
+
+        <div class="settings-group">
+          <div class="settings-title">
+            <h2>Архивы</h2>
+          </div>
+          <div class="button-row">
+            <button class="secondary" type="button" data-export-kind="color-masks">Маски цветовой</button>
+            <button class="secondary" type="button" data-export-kind="color-previews">Превью цветовой</button>
+            <button class="secondary" type="button" data-export-kind="corrected-masks">Маски коррекции</button>
+            <button class="secondary" type="button" data-export-kind="corrected-previews">Превью коррекции</button>
+            <button class="secondary" type="button" data-export-kind="corrected-originals">Кропы оригиналов</button>
+            <button class="secondary" type="button" data-export-kind="all">Скачать всё</button>
+          </div>
+        </div>
+
+        <div id="status" class="status"></div>
+      </aside>
+
+      <section class="content">
+        <div class="grid">
+          <article class="panel">
+            <div class="panel-head"><span class="panel-title">Исходное фото</span></div>
+            <div class="image-wrap">
+              <div id="sourceStage" class="source-stage">
+                <img id="sourceImage" alt="Исходное фото">
+                <div id="sourceExcludedCross" class="source-excluded-cross" aria-hidden="true"></div>
+              </div>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="panel-head">
+              <span class="panel-title">Цветовая авторазметка <span id="colorMarkupStatus">(коррекция освещения не применена)</span></span>
+              <span id="colorMarkupStats" class="stats"></span>
+            </div>
+            <div class="image-wrap">
+              <div id="colorMarkupStage" class="color-markup-stage">
+                <img id="colorMarkupImage" alt="Цветовая авторазметка">
+                <div id="illuminationCompare" class="illumination-compare" aria-hidden="true">
+                  <img id="illuminationBeforeImage" alt="До коррекции освещения">
+                  <div id="illuminationAfterClip" class="illumination-after">
+                    <img id="illuminationAfterImage" alt="После коррекции освещения">
+                  </div>
+                  <span class="illumination-divider"></span>
+                  <span class="illumination-label after">После</span>
+                  <span class="illumination-label before">До</span>
+                </div>
+              </div>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><span class="panel-title">Экспертный эскиз</span></div>
+            <div class="image-wrap">
+              <div id="sketchStage" class="sketch-stage">
+                <img id="sketchBaseImage" alt="Экспертный эскиз">
+                <svg id="sketchSvg" aria-label="Доработка экспертного эскиза"></svg>
+              </div>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="panel-head">
+              <span class="panel-title">Скорректированная авторазметка <span id="correctedMarkupStatus">(коррекция не применена)</span></span>
+              <span id="correctedMarkupStats" class="stats"></span>
+            </div>
+            <div class="image-wrap"><img id="correctedMarkupImage" alt="Скорректированная авторазметка"></div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const imageSelect = document.getElementById("imageSelect");
+      const statusEl = document.getElementById("status");
+      const sourceImage = document.getElementById("sourceImage");
+      const sourceStage = document.getElementById("sourceStage");
+      const excludeFromExportsInput = document.getElementById("excludeFromExportsInput");
+      const sketchBaseImage = document.getElementById("sketchBaseImage");
+      const sketchSvg = document.getElementById("sketchSvg");
+      const colorMarkupStage = document.getElementById("colorMarkupStage");
+      const colorMarkupImage = document.getElementById("colorMarkupImage");
+      const illuminationCompare = document.getElementById("illuminationCompare");
+      const illuminationBeforeImage = document.getElementById("illuminationBeforeImage");
+      const illuminationAfterImage = document.getElementById("illuminationAfterImage");
+      const correctedMarkupImage = document.getElementById("correctedMarkupImage");
+      const colorMarkupStats = document.getElementById("colorMarkupStats");
+      const colorMarkupStatus = document.getElementById("colorMarkupStatus");
+      const correctedMarkupStats = document.getElementById("correctedMarkupStats");
+      const correctedMarkupStatus = document.getElementById("correctedMarkupStatus");
+      const cropSketchErosionInput = document.getElementById("cropSketchErosionInput");
+      const maxSketchErosionButton = document.getElementById("maxSketchErosionButton");
+      const SVG_NS = "http://www.w3.org/2000/svg";
+      const annotationEditingEnabled = {{ editing_enabled | tojson }};
+      const defaultSettings = {
+        a2: {{ approach2_defaults.__dict__ | tojson }},
+        sketch: {{ sketch_defaults.__dict__ | tojson }},
+        correction: {
+          crop_excluded_talc_max_fraction: {{ correction_defaults.crop_excluded_talc_max_fraction | tojson }},
+          crop_min_area_ratio: {{ correction_defaults.crop_min_area_ratio | tojson }},
+          crop_sketch_erosion_radius: {{ correction_defaults.crop_sketch_erosion_radius | tojson }},
+        },
+      };
+      let sketchGeometry = null;
+      let hoverCandidate = null;
+      let selectedCandidate = null;
+      let selectedControl = null;
+      let selectedTangent = null;
+      let controlDrag = null;
+      let hoverRegionChoice = null;
+      let suppressNextClick = false;
+      let requestSequence = 0;
+      let currentColorArtifact = null;
+      let hasIlluminationPreview = false;
+      let applyingStoredSettings = false;
+      let saveSettingsTimer = null;
+      let sketchErosionMaxRequestSequence = 0;
+      const activeRequests = {
+        color: null,
+        sketch: null,
+        corrected: null,
+      };
+
+      function settings(prefix) {
+        const result = {};
+        document.querySelectorAll(`[data-${prefix}]`).forEach((input) => {
+          clampNumberInput(input);
+          result[input.dataset[prefix]] = Number(input.value);
+        });
+        return result;
+      }
+
+      function allSettingsPayload() {
+        return {
+          image: imageSelect.value,
+          a2: settings("a2"),
+          sketch: settings("sketch"),
+          correction: settings("correction"),
+          excluded_from_exports: excludeFromExportsInput.checked,
+        };
+      }
+
+      function applyReadOnlyMode() {
+        if (annotationEditingEnabled) return;
+        document.querySelectorAll("input[type='number'], #excludeFromExportsInput, [data-import], #resetSettingsButton, #maxSketchErosionButton").forEach((element) => {
+          element.disabled = true;
+        });
+        sketchSvg.style.pointerEvents = "none";
+      }
+
+      function requireEditingEnabled(action) {
+        if (annotationEditingEnabled) return true;
+        statusEl.textContent = `${action} недоступно в режиме просмотра`;
+        return false;
+      }
+
+      function applyExportExclusion(value) {
+        excludeFromExportsInput.checked = Boolean(value);
+        sourceStage.classList.toggle("is-excluded", excludeFromExportsInput.checked);
+      }
+
+      function applySettings(prefix, values) {
+        document.querySelectorAll(`[data-${prefix}]`).forEach((input) => {
+          const key = input.dataset[prefix];
+          if (values && Object.prototype.hasOwnProperty.call(values, key)) {
+            input.value = values[key];
+          }
+          clampNumberInput(input);
+        });
+      }
+
+      function decorateRangeHints() {
+        document.querySelectorAll("input[type='number']").forEach(updateRangeHint);
+      }
+
+      function updateRangeHint(input) {
+        const label = input.closest("label");
+        if (!label) return;
+        let hint = label.querySelector(".range-hint");
+        if (!hint) {
+          hint = document.createElement("span");
+          hint.className = "range-hint";
+          label.appendChild(hint);
+        }
+        const min = input.getAttribute("min");
+        const max = input.getAttribute("max");
+        const step = input.getAttribute("step");
+        const range = min !== null && max !== null ? `${min}..${max}` : "";
+        hint.textContent = step ? `${range} · шаг ${step}` : range;
+      }
+
+      function clampNumberInput(input) {
+        if (!input || input.type !== "number") return false;
+        const min = Number(input.getAttribute("min"));
+        const max = Number(input.getAttribute("max"));
+        let value = Number(input.value);
+        if (!Number.isFinite(value)) {
+          value = Number.isFinite(min) ? min : 0;
+        }
+        const clamped = Math.max(
+          Number.isFinite(min) ? min : -Infinity,
+          Math.min(Number.isFinite(max) ? max : Infinity, value),
+        );
+        if (Number(input.value) !== clamped) {
+          input.value = String(clamped);
+          return true;
+        }
+        return false;
+      }
+
+      function clampAllNumberInputs() {
+        let changed = false;
+        document.querySelectorAll("input[type='number']").forEach((input) => {
+          changed = clampNumberInput(input) || changed;
+        });
+        return changed;
+      }
+
+      async function loadStoredSettings(imageName) {
+        const response = await fetch(`{{ base_path }}/api/image-settings/${encodeURIComponent(imageName)}`);
+        if (!response.ok) throw new Error(await response.text());
+        const payload = await response.json();
+        applyingStoredSettings = true;
+        applySettings("a2", payload.a2 || defaultSettings.a2);
+        applySettings("sketch", payload.sketch || defaultSettings.sketch);
+        applySettings("correction", payload.correction || defaultSettings.correction);
+        applyExportExclusion(payload.excluded_from_exports);
+        clampAllNumberInputs();
+        applyingStoredSettings = false;
+        return payload;
+      }
+
+      async function saveCurrentSettings() {
+        if (!annotationEditingEnabled) return;
+        if (applyingStoredSettings) return;
+        const response = await fetch(`{{ base_path }}/api/image-settings/${encodeURIComponent(imageSelect.value)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(allSettingsPayload()),
+        });
+        if (!response.ok) throw new Error(await response.text());
+      }
+
+      function scheduleSettingsSave() {
+        if (applyingStoredSettings) return;
+        window.clearTimeout(saveSettingsTimer);
+        saveSettingsTimer = window.setTimeout(() => {
+          saveCurrentSettings().catch((error) => {
+            statusEl.textContent = `Не удалось сохранить настройки: ${error.message}`;
+          });
+        }, 180);
+      }
+
+      async function resetCurrentSettings() {
+        if (!requireEditingEnabled("Сброс настроек")) return;
+        abortAllRequests();
+        const response = await fetch(`{{ base_path }}/api/image-settings/${encodeURIComponent(imageSelect.value)}`, { method: "DELETE" });
+        if (!response.ok) throw new Error(await response.text());
+        const payload = await response.json();
+        applyingStoredSettings = true;
+        applySettings("a2", payload.a2 || defaultSettings.a2);
+        applySettings("sketch", payload.sketch || defaultSettings.sketch);
+        applySettings("correction", payload.correction || defaultSettings.correction);
+        applyExportExclusion(payload.excluded_from_exports);
+        await updateSketchErosionMax({ saveOnClamp: false });
+        clampAllNumberInputs();
+        applyingStoredSettings = false;
+        statusEl.textContent = "Настройки сброшены";
+        await refresh();
+      }
+
+      function query(settingsObject) {
+        return new URLSearchParams(settingsObject).toString();
+      }
+
+      async function updateSketchErosionMax({ saveOnClamp = true } = {}) {
+        const requestId = ++sketchErosionMaxRequestSequence;
+        const response = await fetch(`{{ base_path }}/api/correction/max-sketch-erosion/${encodeURIComponent(imageSelect.value)}?${query(settings("sketch"))}`);
+        if (!response.ok) throw new Error(await response.text());
+        const payload = await response.json();
+        if (requestId !== sketchErosionMaxRequestSequence) return payload;
+        const nextMax = Math.max(0, Math.round(Number(payload.max) || 0));
+        cropSketchErosionInput.max = String(nextMax);
+        updateRangeHint(cropSketchErosionInput);
+        const wasClamped = clampNumberInput(cropSketchErosionInput);
+        if (wasClamped && saveOnClamp && !applyingStoredSettings) {
+          await saveCurrentSettings();
+        }
+        return payload;
+      }
+
+      async function applyMaxSketchErosion() {
+        if (!requireEditingEnabled("Изменение подрезки эскиза")) return;
+        maxSketchErosionButton.disabled = true;
+        try {
+          const payload = await updateSketchErosionMax({ saveOnClamp: false });
+          cropSketchErosionInput.value = String(Math.max(0, Math.round(Number(payload.max) || 0)));
+          clampNumberInput(cropSketchErosionInput);
+          await saveCurrentSettings();
+          await refreshSketchOnly();
+          statusEl.textContent = payload.applied
+            ? `Подрезка эскиза выставлена в max: ${cropSketchErosionInput.value}`
+            : "В эскизе нет замкнутых областей, подрезка выставлена в 0";
+        } finally {
+          maxSketchErosionButton.disabled = false;
+        }
+      }
+
+      function requestJobId(kind, id) {
+        if (kind === "sketch") return null;
+        if (window.crypto && window.crypto.randomUUID) return `${kind}-${window.crypto.randomUUID()}`;
+        return `${kind}-${Date.now()}-${id}`;
+      }
+
+      function settingsWithJob(settingsObject, request) {
+        return request.jobId
+          ? { ...settingsObject, job_id: request.jobId }
+          : settingsObject;
+      }
+
+      function colorSignature(imageName) {
+        return JSON.stringify({ image: imageName, settings: settings("a2") });
+      }
+
+      function hasCurrentColorArtifact(imageName) {
+        return currentColorArtifact && currentColorArtifact.signature === colorSignature(imageName);
+      }
+
+      function statsText(stats) {
+        return `руда ${stats.ore}% · тальк ${stats.talc}% · повреждения ${stats.damage || 0}% · матрица ${stats.matrix}%`;
+      }
+
+      function correctedStatsText(result) {
+        const cropStats = result.cropStats || result.stats;
+        const fullStats = result.fullStats || result.stats;
+        return `кроп: ${statsText(cropStats)}\nполное: ${statsText(fullStats)}`;
+      }
+
+      function correctedStatusText(result) {
+        if (!result.correctionApplied) return "(коррекция не применена)";
+        const details = result.correctionDetails || {};
+        const notes = ["коррекция применена"];
+        if (details.fallback) notes.push("fallback HDBSCAN");
+        const visibleExcluded = Number.isFinite(Number(details.visibleExcludedTalcFraction))
+          ? `, лишний тальк ${(Number(details.visibleExcludedTalcFraction) * 100).toFixed(1)}%`
+          : "";
+        if (details.cropFallback) {
+          notes.push(`fallback кропа${visibleExcluded}`);
+        } else if (details.cropEnhanced) {
+          const area = Number.isFinite(Number(details.cropAreaRatio))
+            ? `, площадь ${(Number(details.cropAreaRatio) * 100).toFixed(1)}%`
+            : "";
+          notes.push(`умный кроп: прямой${area}${visibleExcluded}`);
+        } else {
+          notes.push("базовый кроп");
+        }
+        return `(${notes.join(", ")})`;
+      }
+
+      function colorIlluminationStatus(result) {
+        return result.illuminationCorrectionApplied
+          ? "(коррекция освещения применена)"
+          : "(коррекция освещения не применена)";
+      }
+
+      function applyIlluminationPreview(imageName, result) {
+        hasIlluminationPreview = Boolean(result.illuminationCorrectionApplied && result.illuminationPreviewImage);
+        illuminationCompare.classList.remove("is-visible");
+        if (!hasIlluminationPreview) {
+          illuminationBeforeImage.removeAttribute("src");
+          illuminationAfterImage.removeAttribute("src");
+          return;
+        }
+        illuminationBeforeImage.src = `{{ base_path }}/media/source/${encodeURIComponent(imageName)}`;
+        illuminationAfterImage.src = result.illuminationPreviewImage;
+      }
+
+      function updateIlluminationSlider(event) {
+        if (!hasIlluminationPreview) return;
+        const rect = colorMarkupImage.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+        const x = Math.max(0, Math.min(event.clientX - rect.left, rect.width));
+        const ratio = x / rect.width;
+        illuminationCompare.style.setProperty("--split", `${ratio * 100}%`);
+        illuminationCompare.style.setProperty("--split-ratio", `${ratio}`);
+        illuminationCompare.classList.add("is-visible");
+      }
+
+      function hideIlluminationSlider() {
+        illuminationCompare.classList.remove("is-visible");
+      }
+
+      function startRequest(kind) {
+        abortRequest(kind);
+        const request = {
+          id: ++requestSequence,
+          controller: new AbortController(),
+        };
+        request.jobId = requestJobId(kind, request.id);
+        activeRequests[kind] = request;
+        return request;
+      }
+
+      function abortRequest(kind) {
+        const request = activeRequests[kind];
+        if (!request) return;
+        if (request.jobId) cancelServerJob(request.jobId);
+        request.controller.abort();
+        activeRequests[kind] = null;
+      }
+
+      function abortAllRequests() {
+        abortRequest("color");
+        abortRequest("sketch");
+        abortRequest("corrected");
+      }
+
+      function isCurrentRequest(kind, request) {
+        return activeRequests[kind] === request && !request.controller.signal.aborted;
+      }
+
+      function isAbortError(error) {
+        return error && error.name === "AbortError";
+      }
+
+      function cancelServerJob(jobId) {
+        fetch(`{{ base_path }}/api/cancel/${encodeURIComponent(jobId)}`, { method: "POST", keepalive: true })
+          .catch(() => {});
+      }
+
+      async function loadApproach(approach, imageName, settingsObject, request) {
+        const params = settingsWithJob(settingsObject, request);
+        const response = await fetch(`{{ base_path }}/api/result/${approach}/${encodeURIComponent(imageName)}?${query(params)}`, { signal: request.controller.signal });
+        if (!response.ok) throw new Error(await response.text());
+        return response.json();
+      }
+
+      async function loadSketch(imageName, request) {
+        const response = await fetch(`{{ base_path }}/api/sketch/${encodeURIComponent(imageName)}?${query(settings("sketch"))}`, { signal: request.controller.signal });
+        if (!response.ok) throw new Error(await response.text());
+        return response.json();
+      }
+
+      async function loadCorrectedMarkup(imageName, request, colorArtifactKey) {
+        const params = settingsWithJob({ ...settings("a2"), ...settings("sketch"), ...settings("correction"), color_artifact_key: colorArtifactKey }, request);
+        const response = await fetch(`{{ base_path }}/api/corrected-result/${encodeURIComponent(imageName)}?${query(params)}`, { signal: request.controller.signal });
+        if (!response.ok) throw new Error(await response.text());
+        return response.json();
+      }
+
+      function applyCorrectedMarkup(correctedMarkup) {
+        correctedMarkupImage.src = correctedMarkup.image;
+        correctedMarkupStats.textContent = correctedStatsText(correctedMarkup);
+        correctedMarkupStatus.textContent = correctedStatusText(correctedMarkup);
+      }
+
+      function markCorrectedStale() {
+        correctedMarkupStatus.textContent = "(коррекция устарела)";
+      }
+
+      async function reloadCorrectedMarkup(imageName) {
+        if (!hasCurrentColorArtifact(imageName)) return false;
+        const correctedRequest = startRequest("corrected");
+        const correctedMarkup = await loadCorrectedMarkup(imageName, correctedRequest, currentColorArtifact.key);
+        if (!isCurrentRequest("corrected", correctedRequest)) return false;
+        applyCorrectedMarkup(correctedMarkup);
+        return true;
+      }
+
+      async function refresh() {
+        const imageName = imageSelect.value;
+        abortAllRequests();
+        currentColorArtifact = null;
+        hasIlluminationPreview = false;
+        hideIlluminationSlider();
+        const colorRequest = startRequest("color");
+        const sketchRequest = startRequest("sketch");
+        statusEl.textContent = "Расчет...";
+        sourceImage.src = `{{ base_path }}/media/source/${encodeURIComponent(imageName)}`;
+        sketchBaseImage.src = `{{ base_path }}/media/source/${encodeURIComponent(imageName)}`;
+        loadApproach(2, imageName, settings("a2"), colorRequest)
+          .then((colorMarkup) => {
+            if (!isCurrentRequest("color", colorRequest)) return;
+            currentColorArtifact = {
+              key: colorMarkup.colorArtifactKey,
+              signature: colorSignature(imageName),
+            };
+            colorMarkupImage.src = colorMarkup.image;
+            colorMarkupStats.textContent = statsText(colorMarkup.stats);
+            colorMarkupStatus.textContent = colorIlluminationStatus(colorMarkup);
+            applyIlluminationPreview(imageName, colorMarkup);
+            statusEl.textContent = "Цветовая авторазметка готова";
+            markCorrectedStale();
+            const correctedRequest = startRequest("corrected");
+            return loadCorrectedMarkup(imageName, correctedRequest, colorMarkup.colorArtifactKey)
+              .then((correctedMarkup) => {
+                if (!isCurrentRequest("corrected", correctedRequest)) return;
+                applyCorrectedMarkup(correctedMarkup);
+                statusEl.textContent = "Готово";
+              })
+              .catch((error) => {
+                if (isAbortError(error)) return;
+                correctedMarkupStatus.textContent = "(ошибка коррекции)";
+                statusEl.textContent = `Ошибка скорректированной авторазметки: ${error.message}`;
+              });
+          })
+          .catch((error) => {
+            if (isAbortError(error)) return;
+            statusEl.textContent = `Ошибка цветовой авторазметки: ${error.message}`;
+          });
+        loadSketch(imageName, sketchRequest)
+          .then((geometry) => {
+            if (!isCurrentRequest("sketch", sketchRequest)) return;
+            sketchGeometry = geometry;
+            renderSketch(sketchGeometry);
+          })
+          .catch((error) => {
+            if (isAbortError(error)) return;
+            statusEl.textContent = `Ошибка эскиза: ${error.message}`;
+          });
+      }
+
+      async function refreshSketchOnly() {
+        const imageName = imageSelect.value;
+        if (!hasCurrentColorArtifact(imageName)) {
+          await refresh();
+          return;
+        }
+        abortRequest("sketch");
+        abortRequest("corrected");
+        const sketchRequest = startRequest("sketch");
+        statusEl.textContent = "Пересчет эскиза и коррекции...";
+        loadSketch(imageName, sketchRequest)
+          .then((geometry) => {
+            if (!isCurrentRequest("sketch", sketchRequest)) return;
+            sketchGeometry = geometry;
+            renderSketch(sketchGeometry);
+          })
+          .catch((error) => {
+            if (isAbortError(error)) return;
+            statusEl.textContent = `Ошибка эскиза: ${error.message}`;
+          });
+        try {
+          if (await reloadCorrectedMarkup(imageName)) {
+            statusEl.textContent = "Готово";
+          }
+        } catch (error) {
+          if (isAbortError(error)) return;
+          correctedMarkupStatus.textContent = "(ошибка коррекции)";
+          statusEl.textContent = `Ошибка скорректированной авторазметки: ${error.message}`;
+        }
+      }
+
+      function renderSketch(data) {
+        hoverCandidate = null;
+        selectedCandidate = null;
+        selectedControl = null;
+        selectedTangent = null;
+        controlDrag = null;
+        hoverRegionChoice = null;
+        suppressNextClick = false;
+        sketchSvg.innerHTML = "";
+        sketchSvg.setAttribute("viewBox", `0 0 ${data.width} ${data.height}`);
+
+        renderRegionChoices(data);
+
+        for (const line of data.lines) {
+          for (const pathData of line.paths) {
+            const path = document.createElementNS(SVG_NS, "path");
+            path.setAttribute("d", pathData);
+            path.setAttribute("fill", "none");
+            path.setAttribute("stroke", line.closed ? "rgb(255,40,40)" : "rgb(0,55,255)");
+            path.setAttribute("stroke-width", line.strokeWidth || Math.max(3, data.width / 600));
+            path.setAttribute("stroke-linecap", "round");
+            path.setAttribute("stroke-linejoin", "round");
+            path.setAttribute("opacity", line.closed ? "0.88" : "0.85");
+            path.setAttribute("pointer-events", "none");
+            sketchSvg.appendChild(path);
+          }
+        }
+
+        const segmentWidth = data.lines.length
+          ? Math.max(2, data.lines.reduce((sum, line) => sum + (line.strokeWidth || 0), 0) / data.lines.length)
+          : Math.max(3, data.width / 600);
+        for (const segment of data.segments) {
+          const group = document.createElementNS(SVG_NS, "g");
+          const mainLine = document.createElementNS(SVG_NS, "path");
+          mainLine.setAttribute("d", pointsPath(segment.points));
+          mainLine.setAttribute("stroke", segment.mainColor === "red" ? "rgb(255,40,40)" : "rgb(0,55,255)");
+          mainLine.setAttribute("stroke-width", segmentWidth);
+          mainLine.setAttribute("stroke-linecap", "round");
+          mainLine.setAttribute("stroke-linejoin", "round");
+          mainLine.setAttribute("fill", "none");
+          mainLine.setAttribute("opacity", segment.mainColor === "red" ? "0.88" : "0.85");
+          mainLine.setAttribute("pointer-events", "none");
+          group.appendChild(mainLine);
+
+          const editLine = document.createElementNS(SVG_NS, "path");
+          editLine.setAttribute("d", pointsPath(segment.points));
+          editLine.setAttribute("stroke", "rgb(0,180,80)");
+          editLine.setAttribute("stroke-width", segmentWidth);
+          editLine.setAttribute("stroke-dasharray", `${segmentWidth * 2} ${segmentWidth * 1.5}`);
+          editLine.setAttribute("stroke-linecap", "round");
+          editLine.setAttribute("stroke-linejoin", "round");
+          editLine.setAttribute("fill", "none");
+          editLine.setAttribute("pointer-events", "none");
+          group.appendChild(editLine);
+
+          const hitLine = document.createElementNS(SVG_NS, "path");
+          hitLine.setAttribute("d", pointsPath(segment.points));
+          hitLine.setAttribute("stroke", "rgba(0,0,0,0)");
+          hitLine.setAttribute("stroke-width", Math.max(segmentWidth * 5, 18));
+          hitLine.setAttribute("stroke-linecap", "round");
+          hitLine.setAttribute("stroke-linejoin", "round");
+          hitLine.setAttribute("fill", "none");
+          hitLine.setAttribute("pointer-events", "stroke");
+          hitLine.addEventListener("contextmenu", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            deleteSketchSegment(segment.id);
+          });
+          group.appendChild(hitLine);
+          sketchSvg.appendChild(group);
+        }
+
+        const endpointRadius = Math.max(5, data.width / 360);
+        for (const endpoint of data.endpoints) {
+          const circle = document.createElementNS(SVG_NS, "circle");
+          circle.setAttribute("cx", endpoint.x);
+          circle.setAttribute("cy", endpoint.y);
+          circle.setAttribute("r", endpointRadius);
+          circle.setAttribute("fill", "rgb(255,40,40)");
+          circle.setAttribute("pointer-events", "none");
+          sketchSvg.appendChild(circle);
+        }
+
+        const hover = document.createElementNS(SVG_NS, "path");
+        hover.setAttribute("id", "hoverSegment");
+        hover.setAttribute("stroke", "rgba(0,180,80,0.55)");
+        hover.setAttribute("stroke-width", segmentWidth);
+        hover.setAttribute("stroke-dasharray", `${segmentWidth * 2} ${segmentWidth * 1.5}`);
+        hover.setAttribute("stroke-linecap", "round");
+        hover.setAttribute("stroke-linejoin", "round");
+        hover.setAttribute("fill", "none");
+        hover.setAttribute("display", "none");
+        hover.setAttribute("pointer-events", "none");
+        sketchSvg.appendChild(hover);
+
+        const choiceGroup = document.createElementNS(SVG_NS, "g");
+        choiceGroup.setAttribute("id", "choiceGroup");
+        choiceGroup.setAttribute("display", "none");
+        sketchSvg.appendChild(choiceGroup);
+      }
+
+      function renderRegionChoices(data) {
+        if (!data.regionChoices || !data.regionChoices.length) return;
+        const group = document.createElementNS(SVG_NS, "g");
+        group.setAttribute("id", "regionChoiceGroup");
+        for (const choice of data.regionChoices) {
+          const path = document.createElementNS(SVG_NS, "path");
+          path.setAttribute("d", choice.path);
+          path.setAttribute("fill-rule", choice.fillRule || "nonzero");
+          path.setAttribute("fill", choice.selected ? "rgba(245,255,255,0.16)" : "rgba(245,255,255,0)");
+          path.setAttribute("stroke", choice.selected ? "rgba(245,255,255,0.55)" : "rgba(245,255,255,0)");
+          path.setAttribute("stroke-width", Math.max(2, data.width / 650));
+          path.setAttribute("cursor", "pointer");
+          path.setAttribute("data-region-mode", choice.id);
+          path.setAttribute("pointer-events", "all");
+          path.addEventListener("mouseenter", () => {
+            hoverRegionChoice = choice;
+            path.setAttribute("fill", "rgba(245,255,255,0.28)");
+            path.setAttribute("stroke", "rgba(245,255,255,0.72)");
+          });
+          path.addEventListener("mouseleave", () => {
+            if (hoverRegionChoice && hoverRegionChoice.id === choice.id) hoverRegionChoice = null;
+            path.setAttribute("fill", choice.selected ? "rgba(245,255,255,0.16)" : "rgba(245,255,255,0)");
+            path.setAttribute("stroke", choice.selected ? "rgba(245,255,255,0.55)" : "rgba(245,255,255,0)");
+          });
+          group.appendChild(path);
+        }
+        sketchSvg.appendChild(group);
+      }
+
+      function pointsPath(points) {
+        if (!points || !points.length) return "";
+        const [first, ...rest] = points;
+        return `M ${first[0]} ${first[1]} ${rest.map((point) => `L ${point[0]} ${point[1]}`).join(" ")}`;
+      }
+
+      function svgPoint(event) {
+        const point = sketchSvg.createSVGPoint();
+        point.x = event.clientX;
+        point.y = event.clientY;
+        return point.matrixTransform(sketchSvg.getScreenCTM().inverse());
+      }
+
+      function distanceToSegment(point, candidate) {
+        const [x1, y1] = candidate.a;
+        const [x2, y2] = candidate.b;
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const lengthSq = dx * dx + dy * dy;
+        if (lengthSq === 0) return Math.hypot(point.x - x1, point.y - y1);
+        const t = Math.max(0, Math.min(1, ((point.x - x1) * dx + (point.y - y1) * dy) / lengthSq));
+        return Math.hypot(point.x - (x1 + t * dx), point.y - (y1 + t * dy));
+      }
+
+      function updateHoverCandidate(event) {
+        if (selectedCandidate) return;
+        if (hoverRegionChoice) return hideHoverCandidate();
+        if (!sketchGeometry || !sketchGeometry.candidates.length) return hideHoverCandidate();
+        const point = svgPoint(event);
+        const threshold = Math.max(18, sketchGeometry.width / 90);
+        let best = null;
+        let bestDistance = Infinity;
+        for (const candidate of sketchGeometry.candidates) {
+          const distance = distanceToSegment(point, candidate);
+          if (distance < bestDistance) {
+            best = candidate;
+            bestDistance = distance;
+          }
+        }
+        if (!best || bestDistance > threshold) return hideHoverCandidate();
+        hoverCandidate = best;
+        const hover = document.getElementById("hoverSegment");
+        hover.setAttribute("d", pointsPath(best.straightRoute.points));
+        hover.setAttribute("display", "block");
+      }
+
+      function hideHoverCandidate() {
+        if (selectedCandidate) return;
+        hoverCandidate = null;
+        const hover = document.getElementById("hoverSegment");
+        if (hover) hover.setAttribute("display", "none");
+        const choiceGroup = document.getElementById("choiceGroup");
+        if (choiceGroup) choiceGroup.setAttribute("display", "none");
+      }
+
+      async function selectHoverCandidate() {
+        if (!hoverCandidate || selectedCandidate) return;
+        if (hoverCandidate.straightOnly) {
+          const candidate = hoverCandidate;
+          hoverCandidate = null;
+          const hover = document.getElementById("hoverSegment");
+          if (hover) hover.setAttribute("display", "none");
+          await createCurveSegment(candidate, candidate.curveDefaultControl, candidate.curveDefaultTangent);
+          return;
+        }
+        selectedCandidate = hoverCandidate;
+        selectedControl = [...selectedCandidate.curveDefaultControl];
+        selectedTangent = [...selectedCandidate.curveDefaultTangent];
+        hoverCandidate = null;
+        const hover = document.getElementById("hoverSegment");
+        if (hover) hover.setAttribute("display", "none");
+        renderRouteChoice(selectedCandidate);
+        statusEl.textContent = "Перетащите кружок или касательные ручки, затем нажмите левую кнопку для подтверждения";
+      }
+
+      function cancelRouteChoice() {
+        if (!selectedCandidate) return;
+        selectedCandidate = null;
+        selectedControl = null;
+        selectedTangent = null;
+        controlDrag = null;
+        const choiceGroup = document.getElementById("choiceGroup");
+        if (choiceGroup) {
+          choiceGroup.innerHTML = "";
+          choiceGroup.setAttribute("display", "none");
+        }
+        statusEl.textContent = "Выбор соединения отменен";
+      }
+
+      function renderRouteChoice(candidate) {
+        const choiceGroup = document.getElementById("choiceGroup");
+        if (!choiceGroup) return;
+        choiceGroup.innerHTML = "";
+        choiceGroup.setAttribute("display", "block");
+
+        const zone = document.createElementNS(SVG_NS, "path");
+        zone.setAttribute("d", `${pointsPath(candidate.controlBounds)} Z`);
+        zone.setAttribute("fill", "rgba(0,180,80,0.10)");
+        zone.setAttribute("stroke", "rgba(95,95,95,0.62)");
+        zone.setAttribute("stroke-width", Math.max(3, sketchGeometry.width / 700));
+        zone.setAttribute("stroke-linejoin", "round");
+        zone.setAttribute("pointer-events", "none");
+        choiceGroup.appendChild(zone);
+
+        choiceGroup.appendChild(choiceGuide(candidate.straightRoute.points, "rgba(70,70,70,0.34)"));
+        choiceGroup.appendChild(choiceGuide(candidate.perimeterRoute.points, "rgba(70,70,70,0.34)"));
+
+        const curve = document.createElementNS(SVG_NS, "path");
+        curve.setAttribute("id", "choiceCurve");
+        curve.setAttribute("d", pointsPath(curveRoutePoints(candidate, selectedControl, selectedTangent)));
+        curve.setAttribute("stroke", "rgba(0,210,90,0.78)");
+        curve.setAttribute("stroke-width", Math.max(5, sketchGeometry.width / 390));
+        curve.setAttribute("stroke-linecap", "round");
+        curve.setAttribute("stroke-linejoin", "round");
+        curve.setAttribute("fill", "none");
+        curve.setAttribute("pointer-events", "none");
+        choiceGroup.appendChild(curve);
+
+        choiceGroup.appendChild(tangentGuide());
+        choiceGroup.appendChild(tangentHandle(1));
+        choiceGroup.appendChild(tangentHandle(-1));
+        choiceGroup.appendChild(controlHandle(selectedControl));
+      }
+
+      function choiceGuide(points, stroke) {
+        const guide = document.createElementNS(SVG_NS, "path");
+        guide.setAttribute("d", pointsPath(points));
+        guide.setAttribute("stroke", stroke);
+        guide.setAttribute("stroke-width", Math.max(3, sketchGeometry.width / 540));
+        guide.setAttribute("stroke-dasharray", `${Math.max(6, sketchGeometry.width / 250)} ${Math.max(5, sketchGeometry.width / 330)}`);
+        guide.setAttribute("stroke-linecap", "round");
+        guide.setAttribute("stroke-linejoin", "round");
+        guide.setAttribute("fill", "none");
+        guide.setAttribute("pointer-events", "none");
+        return guide;
+      }
+
+      function controlHandle(point) {
+        const handle = document.createElementNS(SVG_NS, "circle");
+        const baseRadius = Math.max(9, sketchGeometry.width / 210);
+        handle.setAttribute("id", "curveControlHandle");
+        handle.setAttribute("cx", point[0]);
+        handle.setAttribute("cy", point[1]);
+        handle.setAttribute("r", baseRadius);
+        handle.setAttribute("fill", "rgba(235,255,240,0.96)");
+        handle.setAttribute("stroke", "rgba(70,70,70,0.85)");
+        handle.setAttribute("stroke-width", Math.max(2, sketchGeometry.width / 1100));
+        handle.setAttribute("cursor", "grab");
+        handle.addEventListener("mouseenter", () => {
+          handle.setAttribute("r", Math.max(12, sketchGeometry.width / 170));
+        });
+        handle.addEventListener("mouseleave", () => {
+          if (!controlDrag) handle.setAttribute("r", baseRadius);
+        });
+        handle.addEventListener("pointerdown", (event) => {
+          if (event.button !== 0 || !selectedCandidate) return;
+          event.preventDefault();
+          event.stopPropagation();
+          const point = svgPoint(event);
+          if (event.currentTarget.setPointerCapture) {
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }
+          controlDrag = {
+            kind: "control",
+            pointerId: event.pointerId,
+            target: event.currentTarget,
+            start: [point.x, point.y],
+            moved: false,
+          };
+          suppressNextClick = false;
+        });
+        return handle;
+      }
+
+      function tangentGuide() {
+        const guide = document.createElementNS(SVG_NS, "line");
+        const start = tangentHandlePoint(-1);
+        const end = tangentHandlePoint(1);
+        guide.setAttribute("x1", start[0]);
+        guide.setAttribute("y1", start[1]);
+        guide.setAttribute("x2", end[0]);
+        guide.setAttribute("y2", end[1]);
+        guide.setAttribute("stroke", "rgba(70,70,70,0.72)");
+        guide.setAttribute("stroke-width", Math.max(3, sketchGeometry.width / 620));
+        guide.setAttribute("stroke-linecap", "round");
+        guide.setAttribute("pointer-events", "none");
+        return guide;
+      }
+
+      function tangentHandle(sign) {
+        const point = tangentHandlePoint(sign);
+        const handle = document.createElementNS(SVG_NS, "circle");
+        const radius = Math.max(7, sketchGeometry.width / 260);
+        handle.setAttribute("id", sign > 0 ? "curveTangentHandlePositive" : "curveTangentHandleNegative");
+        handle.setAttribute("cx", point[0]);
+        handle.setAttribute("cy", point[1]);
+        handle.setAttribute("r", radius);
+        handle.setAttribute("fill", "rgba(235,235,235,0.96)");
+        handle.setAttribute("stroke", "rgba(70,70,70,0.88)");
+        handle.setAttribute("stroke-width", Math.max(2, sketchGeometry.width / 1250));
+        handle.setAttribute("cursor", "grab");
+        handle.addEventListener("mouseenter", () => handle.setAttribute("r", Math.max(10, sketchGeometry.width / 210)));
+        handle.addEventListener("mouseleave", () => {
+          if (!controlDrag) handle.setAttribute("r", radius);
+        });
+        handle.addEventListener("pointerdown", (event) => {
+          if (event.button !== 0 || !selectedCandidate) return;
+          event.preventDefault();
+          event.stopPropagation();
+          const pointer = svgPoint(event);
+          if (event.currentTarget.setPointerCapture) {
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }
+          controlDrag = {
+            kind: "tangent",
+            sign,
+            pointerId: event.pointerId,
+            target: event.currentTarget,
+            start: [pointer.x, pointer.y],
+            moved: false,
+          };
+          suppressNextClick = false;
+        });
+        return handle;
+      }
+
+      function tangentHandlePoint(sign) {
+        return [
+          selectedControl[0] + sign * selectedTangent[0] / 4,
+          selectedControl[1] + sign * selectedTangent[1] / 4,
+        ];
+      }
+
+      function dragCurveControl(event) {
+        if (!controlDrag || !selectedCandidate) return false;
+        const point = svgPoint(event);
+        if (Math.hypot(point.x - controlDrag.start[0], point.y - controlDrag.start[1]) > 3) {
+          controlDrag.moved = true;
+        }
+        if (controlDrag.kind === "tangent") {
+          selectedTangent = [
+            controlDrag.sign * 4 * (point.x - selectedControl[0]),
+            controlDrag.sign * 4 * (point.y - selectedControl[1]),
+          ];
+        } else {
+          selectedControl = clampPointToPolygon([point.x, point.y], selectedCandidate.controlBounds);
+        }
+        renderRouteChoice(selectedCandidate);
+        return true;
+      }
+
+      function finishCurveControlDrag(event = null) {
+        if (!controlDrag) return false;
+        if (
+          event &&
+          event.pointerId !== undefined &&
+          controlDrag.pointerId !== undefined &&
+          event.pointerId !== controlDrag.pointerId
+        ) {
+          return false;
+        }
+        const wasMoved = controlDrag.moved;
+        const pointerId = controlDrag.pointerId;
+        const target = controlDrag.target;
+        if (target && target.releasePointerCapture && pointerId !== undefined) {
+          try {
+            if (!target.hasPointerCapture || target.hasPointerCapture(pointerId)) {
+              target.releasePointerCapture(pointerId);
+            }
+          } catch (_error) {
+            // The browser may already have released capture after pointercancel.
+          }
+        }
+        suppressNextClick = wasMoved;
+        controlDrag = null;
+        return true;
+      }
+
+      function curveRoutePoints(candidate, control, tangent) {
+        if (usesPerimeterRoute(control, tangent)) {
+          return candidate.perimeterRoute.points;
+        }
+        return curvePoints(candidate.a, control, tangent, candidate.b);
+      }
+
+      function usesPerimeterRoute(control, tangent) {
+        if (!pointOnImageEdge(control)) return false;
+        return pointOnOrOutsideImageEdge(tangentHandlePointFor(control, tangent, 1)) || pointOnOrOutsideImageEdge(tangentHandlePointFor(control, tangent, -1));
+      }
+
+      function tangentHandlePointFor(control, tangent, sign) {
+        return [
+          control[0] + sign * tangent[0] / 4,
+          control[1] + sign * tangent[1] / 4,
+        ];
+      }
+
+      function pointOnImageEdge(point) {
+        const eps = imageEdgeTolerance();
+        return (
+          point[0] >= -eps &&
+          point[0] <= sketchGeometry.width + eps &&
+          point[1] >= -eps &&
+          point[1] <= sketchGeometry.height + eps &&
+          (Math.abs(point[0]) <= eps ||
+            Math.abs(point[0] - sketchGeometry.width) <= eps ||
+            Math.abs(point[1]) <= eps ||
+            Math.abs(point[1] - sketchGeometry.height) <= eps)
+        );
+      }
+
+      function pointOnOrOutsideImageEdge(point) {
+        const eps = imageEdgeTolerance();
+        return point[0] <= eps || point[0] >= sketchGeometry.width - eps || point[1] <= eps || point[1] >= sketchGeometry.height - eps;
+      }
+
+      function imageEdgeTolerance() {
+        return Math.max(2, Math.min(sketchGeometry.width, sketchGeometry.height) * 0.015);
+      }
+
+      function curvePoints(a, control, tangent, b) {
+        const points = [];
+        const steps = 64;
+        const controlsSum = [
+          (8 * control[0] - a[0] - b[0]) / 3,
+          (8 * control[1] - a[1] - b[1]) / 3,
+        ];
+        const controlsDelta = [
+          (4 / 3) * tangent[0] - (b[0] - a[0]),
+          (4 / 3) * tangent[1] - (b[1] - a[1]),
+        ];
+        const firstControl = [
+          (controlsSum[0] - controlsDelta[0]) / 2,
+          (controlsSum[1] - controlsDelta[1]) / 2,
+        ];
+        const secondControl = [
+          (controlsSum[0] + controlsDelta[0]) / 2,
+          (controlsSum[1] + controlsDelta[1]) / 2,
+        ];
+        for (let index = 0; index <= steps; index += 1) {
+          const t = index / steps;
+          const mt = 1 - t;
+          points.push([
+            mt ** 3 * a[0] + 3 * mt * mt * t * firstControl[0] + 3 * mt * t * t * secondControl[0] + t ** 3 * b[0],
+            mt ** 3 * a[1] + 3 * mt * mt * t * firstControl[1] + 3 * mt * t * t * secondControl[1] + t ** 3 * b[1],
+          ]);
+        }
+        return clampPolylineToBox(points, sketchGeometry.width, sketchGeometry.height);
+      }
+
+      function clampPolylineToBox(points, width, height) {
+        if (!points.length) return [];
+        const result = [];
+        let pendingExit = null;
+        if (pointInsideBox(points[0], width, height)) appendPoint(result, points[0]);
+
+        for (let index = 0; index < points.length - 1; index += 1) {
+          const start = points[index];
+          const end = points[index + 1];
+          const startInside = pointInsideBox(start, width, height);
+          const endInside = pointInsideBox(end, width, height);
+          const clipped = clipSegmentToBox(start, end, width, height);
+
+          if (startInside && endInside) {
+            appendPoint(result, end);
+          } else if (startInside && !endInside) {
+            if (clipped) {
+              appendPoint(result, clipped.exit);
+              pendingExit = clipped.exit;
+            }
+          } else if (!startInside && endInside) {
+            if (clipped) {
+              if (pendingExit) {
+                appendPoints(result, shortestPerimeterArcPoints(pendingExit, clipped.entry, width, height).slice(1));
+                pendingExit = null;
+              } else {
+                appendPoint(result, clipped.entry);
+              }
+              appendPoint(result, end);
+            }
+          } else if (clipped) {
+            if (pendingExit) {
+              appendPoints(result, shortestPerimeterArcPoints(pendingExit, clipped.entry, width, height).slice(1));
+              pendingExit = null;
+            }
+            appendPoint(result, clipped.entry);
+            appendPoint(result, clipped.exit);
+            pendingExit = clipped.exit;
+          }
+        }
+        return result;
+      }
+
+      function pointInsideBox(point, width, height) {
+        return point[0] >= 0 && point[0] <= width && point[1] >= 0 && point[1] <= height;
+      }
+
+      function clipSegmentToBox(start, end, width, height) {
+        const dx = end[0] - start[0];
+        const dy = end[1] - start[1];
+        let t0 = 0;
+        let t1 = 1;
+        for (const [p, q] of [[-dx, start[0]], [dx, width - start[0]], [-dy, start[1]], [dy, height - start[1]]]) {
+          if (Math.abs(p) < 1e-12) {
+            if (q < 0) return null;
+            continue;
+          }
+          const ratio = q / p;
+          if (p < 0) {
+            if (ratio > t1) return null;
+            t0 = Math.max(t0, ratio);
+          } else {
+            if (ratio < t0) return null;
+            t1 = Math.min(t1, ratio);
+          }
+        }
+        if (t0 > t1) return null;
+        return {
+          entry: pointAtSegmentT(start, end, t0),
+          exit: pointAtSegmentT(start, end, t1),
+        };
+      }
+
+      function pointAtSegmentT(start, end, t) {
+        return [
+          start[0] + (end[0] - start[0]) * t,
+          start[1] + (end[1] - start[1]) * t,
+        ];
+      }
+
+      function appendPoints(points, newPoints) {
+        for (const point of newPoints) appendPoint(points, point);
+      }
+
+      function appendPoint(points, point) {
+        const rounded = [Math.round(point[0] * 100) / 100, Math.round(point[1] * 100) / 100];
+        if (!points.length || Math.abs(points[points.length - 1][0] - rounded[0]) > 1e-6 || Math.abs(points[points.length - 1][1] - rounded[1]) > 1e-6) {
+          points.push(rounded);
+        }
+      }
+
+      function shortestPerimeterArcPoints(start, end, width, height) {
+        const clockwise = perimeterArcPoints(start, end, width, height, true);
+        const counter = perimeterArcPoints(start, end, width, height, false);
+        return polylineLength(clockwise) <= polylineLength(counter) ? clockwise : counter;
+      }
+
+      function perimeterArcPoints(start, end, width, height, clockwise) {
+        const total = 2 * (width + height);
+        const startPos = perimeterPosition(start, width, height);
+        const endPos = perimeterPosition(end, width, height);
+        const distance = clockwise ? (endPos - startPos + total) % total : (startPos - endPos + total) % total;
+        const signedDistance = clockwise ? distance : -distance;
+        const positions = [
+          startPos,
+          ...cornerPositionsBetween(startPos, signedDistance, total, width, height),
+          startPos + signedDistance,
+        ];
+        return positions.map((position) => perimeterPoint(((position % total) + total) % total, width, height));
+      }
+
+      function cornerPositionsBetween(startPos, signedDistance, total, width, height) {
+        if (Math.abs(signedDistance) < 1e-9) return [];
+        const direction = signedDistance > 0 ? 1 : -1;
+        const distance = Math.abs(signedDistance);
+        const corners = [0, width, width + height, 2 * width + height];
+        const positions = [];
+        for (const corner of corners) {
+          const delta = (((corner - startPos) * direction) % total + total) % total;
+          if (delta > 1e-6 && delta < distance - 1e-6) {
+            positions.push(startPos + direction * delta);
+          }
+        }
+        return positions.sort((a, b) => direction > 0 ? a - b : b - a);
+      }
+
+      function perimeterPosition(point, width, height) {
+        const [x, y] = point;
+        const distances = [
+          [Math.abs(y), x],
+          [Math.abs(x - width), width + y],
+          [Math.abs(y - height), width + height + (width - x)],
+          [Math.abs(x), 2 * width + height + (height - y)],
+        ];
+        distances.sort((a, b) => a[0] - b[0]);
+        return distances[0][1];
+      }
+
+      function perimeterPoint(position, width, height) {
+        let remaining = position % (2 * (width + height));
+        if (remaining <= width) return [Math.round(remaining * 100) / 100, 0];
+        remaining -= width;
+        if (remaining <= height) return [width, Math.round(remaining * 100) / 100];
+        remaining -= height;
+        if (remaining <= width) return [Math.round((width - remaining) * 100) / 100, height];
+        remaining -= width;
+        return [0, Math.round((height - remaining) * 100) / 100];
+      }
+
+      function polylineLength(points) {
+        let total = 0;
+        for (let index = 0; index < points.length - 1; index += 1) {
+          total += Math.hypot(points[index + 1][0] - points[index][0], points[index + 1][1] - points[index][1]);
+        }
+        return total;
+      }
+
+      function clampPointToPolygon(point, polygon) {
+        if (pointInPolygon(point, polygon)) return [point[0], point[1]];
+        let best = polygon[0];
+        let bestDistance = Infinity;
+        for (let index = 0; index < polygon.length; index += 1) {
+          const start = polygon[index];
+          const end = polygon[(index + 1) % polygon.length];
+          const candidate = closestPointOnSegment(point, start, end);
+          const distance = Math.hypot(point[0] - candidate[0], point[1] - candidate[1]);
+          if (distance < bestDistance) {
+            best = candidate;
+            bestDistance = distance;
+          }
+        }
+        return best;
+      }
+
+      function pointInPolygon(point, polygon) {
+        let inside = false;
+        for (let index = 0, previousIndex = polygon.length - 1; index < polygon.length; previousIndex = index, index += 1) {
+          const current = polygon[index];
+          const previous = polygon[previousIndex];
+          if (distanceToSegment({ x: point[0], y: point[1] }, { a: current, b: previous }) < 0.01) return true;
+          const intersects = (current[1] > point[1]) !== (previous[1] > point[1]);
+          if (intersects) {
+            const x = ((previous[0] - current[0]) * (point[1] - current[1])) / (previous[1] - current[1]) + current[0];
+            if (point[0] <= x) inside = !inside;
+          }
+        }
+        return inside;
+      }
+
+      function closestPointOnSegment(point, start, end) {
+        const dx = end[0] - start[0];
+        const dy = end[1] - start[1];
+        const lengthSq = dx * dx + dy * dy;
+        if (lengthSq === 0) return [start[0], start[1]];
+        const t = Math.max(0, Math.min(1, ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy) / lengthSq));
+        return [start[0] + t * dx, start[1] + t * dy];
+      }
+
+      async function createCurveSegment(candidate = selectedCandidate, control = selectedControl, tangent = selectedTangent) {
+        if (!requireEditingEnabled("Редактирование эскиза")) return;
+        if (!candidate || !control || !tangent) return;
+        const imageName = imageSelect.value;
+        const response = await fetch(`{{ base_path }}/api/sketch-segments/${encodeURIComponent(imageName)}?${query(settings("sketch"))}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            aEndpointId: candidate.aEndpointId,
+            bEndpointId: candidate.bEndpointId,
+            control,
+            tangent,
+          }),
+        });
+        if (!response.ok) throw new Error(await response.text());
+        selectedCandidate = null;
+        selectedControl = null;
+        selectedTangent = null;
+        hoverCandidate = null;
+        sketchGeometry = await response.json();
+        renderSketch(sketchGeometry);
+        if (await reloadCorrectedMarkup(imageName)) {
+          statusEl.textContent = candidate.straightOnly ? "Прямое соединение добавлено" : "Кривое соединение добавлено";
+        } else {
+          await refresh();
+        }
+      }
+
+      async function setSketchRegionMode(regionMode) {
+        if (!requireEditingEnabled("Выбор области эскиза")) return;
+        if (!regionMode) return;
+        const imageName = imageSelect.value;
+        const response = await fetch(`{{ base_path }}/api/sketch-region-mode/${encodeURIComponent(imageName)}?${query(settings("sketch"))}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ regionMode }),
+        });
+        if (!response.ok) throw new Error(await response.text());
+        sketchGeometry = await response.json();
+        renderSketch(sketchGeometry);
+        if (await reloadCorrectedMarkup(imageName)) {
+          statusEl.textContent = regionMode === "outside"
+            ? "Выбрана внешняя область эскиза"
+            : "Выбрана внутренняя область эскиза";
+        } else {
+          await refresh();
+        }
+      }
+
+      async function deleteSketchSegment(segmentId) {
+        if (!requireEditingEnabled("Удаление соединения")) return;
+        const imageName = imageSelect.value;
+        const response = await fetch(`{{ base_path }}/api/sketch-segments/${encodeURIComponent(imageName)}?segment_id=${encodeURIComponent(segmentId)}&${query(settings("sketch"))}`, {
+          method: "DELETE",
+        });
+        if (!response.ok) throw new Error(await response.text());
+        sketchGeometry = await response.json();
+        renderSketch(sketchGeometry);
+        if (await reloadCorrectedMarkup(imageName)) {
+          statusEl.textContent = "Соединение удалено";
+        } else {
+          await refresh();
+        }
+      }
+
+      async function copySettings(prefix) {
+        const payload = {
+          image: imageSelect.value,
+          target: prefix === "sketch" ? "sketch" : prefix === "correction" ? "corrected" : "approach",
+          approach: prefix === "a1" ? 1 : prefix === "a2" ? 2 : null,
+          settings: settings(prefix),
+        };
+        await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+        statusEl.textContent = prefix === "sketch"
+          ? "Настройки эскиза скопированы"
+          : prefix === "correction"
+            ? "Настройки скорректированной авторазметки скопированы"
+            : "Настройки цветовой авторазметки скопированы";
+      }
+
+      async function importSettings(prefix) {
+        if (!requireEditingEnabled("Импорт настроек")) return;
+        try {
+          const raw = await navigator.clipboard.readText();
+          const parsed = JSON.parse(raw);
+          const importedSettings = parsed.settings && typeof parsed.settings === "object"
+            ? parsed.settings
+            : parsed;
+          let applied = 0;
+          document.querySelectorAll(`[data-${prefix}]`).forEach((input) => {
+            const key = input.dataset[prefix];
+            if (Object.prototype.hasOwnProperty.call(importedSettings, key)) {
+              input.value = importedSettings[key];
+              applied += 1;
+            }
+          });
+          if (parsed.image && typeof parsed.image === "string") {
+            const option = Array.from(imageSelect.options).find((item) => item.value === parsed.image);
+            if (option) imageSelect.value = parsed.image;
+          }
+          if (applied === 0) {
+            statusEl.textContent = "В буфере нет настроек для этого подхода";
+            return;
+          }
+          clampAllNumberInputs();
+          if (prefix === "sketch" || prefix === "correction") {
+            await updateSketchErosionMax({ saveOnClamp: false });
+          }
+          await saveCurrentSettings();
+          statusEl.textContent = `Импортировано параметров: ${applied}`;
+          if ((prefix === "sketch" || prefix === "correction") && (!parsed.image || parsed.image === imageSelect.value)) {
+            await refreshSketchOnly();
+          } else {
+            await refresh();
+          }
+        } catch (error) {
+          statusEl.textContent = `Не удалось импортировать JSON: ${error.message}`;
+        }
+      }
+
+      async function selectImageAndRefresh() {
+        try {
+          abortAllRequests();
+          await loadStoredSettings(imageSelect.value);
+          await updateSketchErosionMax({ saveOnClamp: false });
+          clampAllNumberInputs();
+          await refresh();
+        } catch (error) {
+          applyingStoredSettings = false;
+          statusEl.textContent = `Не удалось загрузить настройки: ${error.message}`;
+        }
+      }
+
+      async function startExport(kind, button) {
+        button.disabled = true;
+        try {
+          const response = await fetch(`{{ base_path }}/api/export/${encodeURIComponent(kind)}`, { method: "POST" });
+          if (!response.ok) throw new Error(await response.text());
+          const job = await response.json();
+          await pollExportJob(job.id, button);
+        } catch (error) {
+          statusEl.textContent = `Ошибка архива: ${error.message}`;
+          button.disabled = false;
+        }
+      }
+
+      async function pollExportJob(jobId, button) {
+        while (true) {
+          const response = await fetch(`{{ base_path }}/api/export-jobs/${encodeURIComponent(jobId)}`);
+          if (!response.ok) throw new Error(await response.text());
+          const job = await response.json();
+          if (job.status === "done") {
+            statusEl.textContent = `Архив готов: ${job.success || 0} готово, ${job.skipped || 0} пропущено, ${job.failed || 0} ошибок`;
+            button.disabled = false;
+            window.location.href = `{{ base_path }}/api/export-jobs/${encodeURIComponent(jobId)}/download`;
+            return;
+          }
+          if (job.status === "error") {
+            button.disabled = false;
+            throw new Error(job.error || "export failed");
+          }
+          statusEl.textContent = `Формируется архив: ${job.processed || 0}/${job.total || 0}${job.currentImage ? `\n${job.currentImage}` : ""}`;
+          await new Promise((resolve) => window.setTimeout(resolve, 1000));
+        }
+      }
+
+      function downloadEditedSketchPng() {
+        const imageName = imageSelect.value;
+        const url = `{{ base_path }}/media/edited-sketch/${encodeURIComponent(imageName)}?${query(settings("sketch"))}`;
+        const link = document.createElement("a");
+        const stem = imageName.replace(/\.[^.]+$/, "");
+        link.href = url;
+        link.download = `${stem}-edited-sketch.png`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+
+      async function handleNumberInputChange(input) {
+        clampNumberInput(input);
+        if (input.dataset.sketch !== undefined) {
+          await updateSketchErosionMax({ saveOnClamp: false });
+          clampAllNumberInputs();
+          await saveCurrentSettings();
+          await refreshSketchOnly();
+        } else if (input.dataset.correction !== undefined) {
+          await saveCurrentSettings();
+          await refreshSketchOnly();
+        } else {
+          await saveCurrentSettings();
+          await refresh();
+        }
+      }
+
+      document.getElementById("refreshButton").addEventListener("click", refresh);
+      document.getElementById("resetSettingsButton").addEventListener("click", () => {
+        resetCurrentSettings().catch((error) => {
+          statusEl.textContent = `Не удалось сбросить настройки: ${error.message}`;
+        });
+      });
+      excludeFromExportsInput.addEventListener("change", () => {
+        applyExportExclusion(excludeFromExportsInput.checked);
+        saveCurrentSettings()
+          .then(() => {
+            statusEl.textContent = excludeFromExportsInput.checked
+              ? "Изображение исключено из архивов"
+              : "Изображение включено в архивы";
+          })
+          .catch((error) => {
+            statusEl.textContent = `Не удалось сохранить исключение: ${error.message}`;
+          });
+      });
+      imageSelect.addEventListener("change", selectImageAndRefresh);
+      colorMarkupStage.addEventListener("pointerenter", updateIlluminationSlider);
+      colorMarkupStage.addEventListener("pointermove", updateIlluminationSlider);
+      colorMarkupStage.addEventListener("pointerleave", hideIlluminationSlider);
+      decorateRangeHints();
+      document.querySelectorAll("input[type='number']").forEach((input) => {
+        input.addEventListener("change", () => {
+          handleNumberInputChange(input).catch((error) => {
+            statusEl.textContent = `Ошибка настроек: ${error.message}`;
+          });
+        });
+      });
+      maxSketchErosionButton.addEventListener("click", () => {
+        applyMaxSketchErosion().catch((error) => {
+          statusEl.textContent = `Не удалось выставить max: ${error.message}`;
+          maxSketchErosionButton.disabled = false;
+        });
+      });
+      document.querySelectorAll("[data-copy]").forEach((button) => {
+        button.addEventListener("click", () => copySettings(button.dataset.copy));
+      });
+      document.querySelectorAll("[data-import]").forEach((button) => {
+        button.addEventListener("click", () => importSettings(button.dataset.import));
+      });
+      document.querySelectorAll("[data-export-kind]").forEach((button) => {
+        button.addEventListener("click", () => startExport(button.dataset.exportKind, button));
+      });
+      document.getElementById("downloadSketchPng").addEventListener("click", downloadEditedSketchPng);
+      sketchSvg.addEventListener("pointermove", (event) => {
+        if (dragCurveControl(event)) {
+          event.preventDefault();
+          return;
+        }
+        updateHoverCandidate(event);
+      });
+      sketchSvg.addEventListener("pointerup", (event) => {
+        if (finishCurveControlDrag(event)) {
+          event.preventDefault();
+        }
+      });
+      sketchSvg.addEventListener("pointercancel", (event) => {
+        if (finishCurveControlDrag(event)) {
+          event.preventDefault();
+        }
+      });
+      sketchSvg.addEventListener("pointerleave", () => {
+        if (!controlDrag) hideHoverCandidate();
+      });
+      window.addEventListener("pointerup", (event) => {
+        if (finishCurveControlDrag(event)) {
+          event.preventDefault();
+        }
+      });
+      window.addEventListener("pointercancel", (event) => {
+        if (finishCurveControlDrag(event)) {
+          event.preventDefault();
+        }
+      });
+      sketchSvg.addEventListener("click", async (event) => {
+        event.preventDefault();
+        if (suppressNextClick) {
+          suppressNextClick = false;
+          return;
+        }
+        try {
+          if (hoverRegionChoice && !selectedCandidate) {
+            await setSketchRegionMode(hoverRegionChoice.id);
+          } else if (selectedCandidate) {
+            await createCurveSegment();
+          } else {
+            await selectHoverCandidate();
+          }
+        } catch (error) {
+          statusEl.textContent = `Ошибка: ${error.message}`;
+        }
+      });
+      sketchSvg.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        cancelRouteChoice();
+      });
+
+      applyReadOnlyMode();
+      selectImageAndRefresh();
+    </script>
+  </body>
+</html>

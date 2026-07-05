@@ -3,11 +3,16 @@ from uuid import uuid4
 
 import redis
 import torch
-from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.templating import Jinja2Templates
+from nornik_app.data import list_image_pairs
+from nornik_app.main import app as nornik_app
 from rq.job import Job
 
 app = FastAPI(title="MVP Backend")
+app.mount("/api/annotation/nornik", nornik_app)
+templates = Jinja2Templates(directory="app/templates")
 
 from app.queue import QUEUE_NAME, get_queue, get_redis
 from app.settings import (
@@ -27,9 +32,9 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 ANNOTATION_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
-@app.get("/")
-async def root() -> dict[str, str]:
-    return {"service": "backend", "status": "ok"}
+@app.get("/", response_class=HTMLResponse)
+async def root(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(request, "index.html")
 
 
 @app.get("/health")
@@ -61,10 +66,13 @@ async def api_hello() -> dict[str, str]:
 
 @app.get("/api/annotation/status")
 async def annotation_status() -> dict[str, object]:
+    image_count = len(list_image_pairs())
     return {
         "editing_enabled": ANNOTATION_EDITING_ENABLED,
         "mode": "unlocked" if ANNOTATION_EDITING_ENABLED else "locked",
         "data_dir": str(ANNOTATION_DATA_DIR),
+        "nornik_available": image_count > 0,
+        "image_count": image_count,
     }
 
 
