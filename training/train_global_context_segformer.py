@@ -298,6 +298,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-checkpoint", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, default=Path("training-artifacts/global_context_segformer_runs"))
     parser.add_argument("--run-name", type=str, default=None)
+    parser.add_argument("--resume-checkpoint", type=Path, default=None)
     parser.add_argument("--segmentation-epochs", type=int, default=8)
     parser.add_argument("--classification-epochs", type=int, default=8)
     parser.add_argument("--batch-size", type=int, default=4)
@@ -343,6 +344,8 @@ def main() -> None:
     load_base_checkpoint(model, args.base_checkpoint, device)
 
     history: list[dict[str, float | int | str]] = []
+    if args.resume_checkpoint is not None:
+        history = load_checkpoint(model, args.resume_checkpoint, device)
     write_run_config(run_dir, args, device)
 
     if not args.skip_segmentation_stage:
@@ -464,8 +467,15 @@ def train_classification_stage(
         num_workers=args.num_workers,
         pin_memory=device.type == "cuda",
     )
-    best_auc = -1.0
-    for epoch in range(1, args.classification_epochs + 1):
+    previous_rows = [row for row in history if row["stage"] == "classification"]
+    completed_epochs = max((int(row["epoch"]) for row in previous_rows), default=0)
+    best_auc = max((float(row.get("val_roc_auc", -1.0)) for row in previous_rows), default=-1.0)
+    if completed_epochs >= args.classification_epochs:
+        print(
+            f"Classification already has {completed_epochs} epochs; "
+            f"target is {args.classification_epochs}, skipping training."
+        )
+    for epoch in range(completed_epochs + 1, args.classification_epochs + 1):
         train_loss = train_classification_epoch(model, train_loader, criterion, optimizer, device)
         val_loss, val_metrics, _ = evaluate_classification(model, val_loader, criterion, split_records["val"], device)
         row = {
@@ -734,13 +744,14 @@ def save_checkpoint(
     )
 
 
-def load_checkpoint(model: GlobalContextSegformer, path: Path, device: torch.device) -> None:
+def load_checkpoint(model: GlobalContextSegformer, path: Path, device: torch.device) -> list[dict[str, float | int | str]]:
     checkpoint = torch.load(path, map_location=device, weights_only=False)
     model.local_model.load_state_dict(checkpoint["local_model_state_dict"])
     model.global_model.load_state_dict(checkpoint["global_model_state_dict"])
     model.context_adapter.load_state_dict(checkpoint["context_adapter_state_dict"])
     model.classification_head.load_state_dict(checkpoint["classification_head_state_dict"])
     model.to(device)
+    return list(checkpoint.get("history", []))
 
 
 def load_gray_image(path: Path) -> np.ndarray:
@@ -1013,6 +1024,58 @@ def plot_combined_history(history: list[dict[str, float | int | str]], plots_dir
     ax.legend()
     fig.tight_layout()
     fig.savefig(plots_dir / "loss.png", dpi=160)
+    plt.close(fig)
+    plot_segmentation_quality(history, plots_dir)
+    plot_classification_quality(history, plots_dir)
+
+
+def plot_segmentation_quality(history: list[dict[str, float | int | str]], plots_dir: Path) -> None:
+    rows = [row for row in history if row["stage"] == "segmentation"]
+    if not rows:
+        return
+    epochs = [int(row["epoch"]) for row in rows]
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(epochs, [float(row.get("val_mean_iou", 0.0)) for row in rows], marker="o", label="mean IoU")
+    for class_index, class_name in enumerate(CLASS_NAMES):
+        key = f"val_iou_class_{class_index}"
+        if key in rows[0]:
+            ax.plot(epochs, [float(row.get(key, 0.0)) for row in rows], marker=".", label=f"IoU {class_name}")
+    ax.set_title("Segmentation validation quality")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("IoU")
+    ax.set_ylim(0.0, 1.0)
+    ax.grid(alpha=0.3)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(plots_dir / "segmentation_quality.png", dpi=160)
+    plt.close(fig)
+
+
+def plot_classification_quality(history: list[dict[str, float | int | str]], plots_dir: Path) -> None:
+    rows = [row for row in history if row["stage"] == "classification"]
+    if not rows:
+        return
+    metrics = (
+        ("val_roc_auc", "ROC AUC"),
+        ("val_pr_auc", "PR AUC"),
+        ("val_f1", "F1"),
+        ("val_balanced_accuracy", "Balanced accuracy"),
+        ("val_recall", "Recall"),
+        ("val_precision", "Precision"),
+    )
+    epochs = [int(row["epoch"]) for row in rows]
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for key, label in metrics:
+        if key in rows[0]:
+            ax.plot(epochs, [float(row.get(key, 0.0)) for row in rows], marker="o", label=label)
+    ax.set_title("Classification validation quality")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Metric")
+    ax.set_ylim(0.0, 1.0)
+    ax.grid(alpha=0.3)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(plots_dir / "classification_quality.png", dpi=160)
     plt.close(fig)
 
 
