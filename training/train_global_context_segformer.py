@@ -299,8 +299,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=Path("training-artifacts/global_context_segformer_runs"))
     parser.add_argument("--run-name", type=str, default=None)
     parser.add_argument("--resume-checkpoint", type=Path, default=None)
-    parser.add_argument("--segmentation-epochs", type=int, default=8)
+    parser.add_argument("--segmentation-epochs", type=int, default=60)
     parser.add_argument("--classification-epochs", type=int, default=8)
+    parser.add_argument("--segmentation-patience", type=int, default=12)
+    parser.add_argument("--segmentation-min-delta", type=float, default=0.001)
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--patches-per-image", type=int, default=TRAIN_PATCHES_PER_IMAGE)
     parser.add_argument("--eval-max-patches-per-image", type=int, default=32)
@@ -311,6 +313,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--skip-segmentation-stage", action="store_true")
+    parser.add_argument("--skip-classification-stage", action="store_true")
     parser.add_argument("--max-segmentation-images", type=int, default=None)
     parser.add_argument("--max-images-per-class", type=int, default=None)
     parser.add_argument("--smoke", action="store_true")
@@ -355,9 +358,25 @@ def main() -> None:
         if not segmentation_records:
             raise RuntimeError(f"No segmentation records found under {args.segmentation_data_root}")
         train_records, val_records = split_records(segmentation_records, val_ratio=0.15, seed=args.seed)
-        train_segmentation_stage(model, train_records, val_records, args, history, checkpoint_dir, plots_dir, device)
+        best_segmentation_checkpoint = train_segmentation_stage(
+            model,
+            train_records,
+            val_records,
+            args,
+            history,
+            checkpoint_dir,
+            plots_dir,
+            device,
+        )
+        load_checkpoint(model, best_segmentation_checkpoint, device)
+        print(f"Loaded best segmentation checkpoint for classification: {best_segmentation_checkpoint}")
     else:
         print("Skipping segmentation stage; training classification head on base/global-context model.")
+
+    if args.skip_classification_stage:
+        print("Skipping classification stage.")
+        print(f"Run artifacts written to {run_dir}")
+        return
 
     classification_records = load_manifest(args.classification_dataset_dir / "manifest.csv")
     if args.max_images_per_class is not None:
@@ -380,10 +399,12 @@ def train_segmentation_stage(
     checkpoint_dir: Path,
     plots_dir: Path,
     device: torch.device,
-) -> None:
+) -> Path:
     configure_for_segmentation_stage(model)
     optimizer = make_optimizer(model, args, include_classification_head=False)
     criterion = CombinedSegmentationLoss()
+    best_checkpoint_path = checkpoint_dir / "segmentation_best.pth"
+    last_checkpoint_path = checkpoint_dir / "segmentation_last.pth"
     train_loader = DataLoader(
         SegmentationPatchDataset(train_records, patches_per_image=args.patches_per_image, seed=args.seed, train=True),
         batch_size=args.batch_size,
@@ -399,7 +420,22 @@ def train_segmentation_stage(
         num_workers=args.num_workers,
         pin_memory=device.type == "cuda",
     )
-    for epoch in range(1, args.segmentation_epochs + 1):
+    previous_rows = [row for row in history if row["stage"] == "segmentation"]
+    completed_epochs = max((int(row["epoch"]) for row in previous_rows), default=0)
+    best_row = max(previous_rows, key=lambda row: float(row.get("val_mean_iou", -1.0)), default=None)
+    best_miou = float(best_row.get("val_mean_iou", -1.0)) if best_row is not None else -1.0
+    best_epoch = int(best_row["epoch"]) if best_row is not None else 0
+    epochs_without_improvement = 0
+    stopped_reason = "max_epochs"
+    if completed_epochs > 0:
+        save_checkpoint(best_checkpoint_path, model, optimizer, completed_epochs, history, args)
+        save_checkpoint(last_checkpoint_path, model, optimizer, completed_epochs, history, args)
+    if completed_epochs >= args.segmentation_epochs:
+        print(
+            f"Segmentation already has {completed_epochs} epochs; "
+            f"target is {args.segmentation_epochs}, skipping training."
+        )
+    for epoch in range(completed_epochs + 1, args.segmentation_epochs + 1):
         train_loss = train_segmentation_epoch(model, train_loader, criterion, optimizer, device)
         val_loss, val_metrics = evaluate_segmentation(model, val_loader, criterion, device)
         row = {
@@ -411,12 +447,66 @@ def train_segmentation_stage(
         }
         history.append(row)
         save_checkpoint(checkpoint_dir / f"segmentation_epoch_{epoch:03d}.pth", model, optimizer, epoch, history, args)
+        save_checkpoint(last_checkpoint_path, model, optimizer, epoch, history, args)
+        if val_metrics["mean_iou"] >= best_miou + args.segmentation_min_delta:
+            best_miou = val_metrics["mean_iou"]
+            best_epoch = epoch
+            epochs_without_improvement = 0
+            save_checkpoint(best_checkpoint_path, model, optimizer, epoch, history, args)
+        else:
+            epochs_without_improvement += 1
         write_history(checkpoint_dir.parent / "history.csv", history)
         plot_combined_history(history, plots_dir)
+        write_training_summary(
+            checkpoint_dir.parent,
+            {
+                "segmentation": {
+                    "best_epoch": best_epoch,
+                    "best_val_mean_iou": best_miou,
+                    "completed_epochs": epoch,
+                    "max_epochs": args.segmentation_epochs,
+                    "patience": args.segmentation_patience,
+                    "min_delta": args.segmentation_min_delta,
+                    "epochs_without_improvement": epochs_without_improvement,
+                    "stopped_reason": stopped_reason,
+                    "best_checkpoint": str(best_checkpoint_path),
+                    "last_checkpoint": str(last_checkpoint_path),
+                }
+            },
+        )
         print(
             f"Seg epoch {epoch:03d}/{args.segmentation_epochs}: "
-            f"train_loss={train_loss:.4f} val_loss={val_loss:.4f} val_miou={val_metrics['mean_iou']:.4f}"
+            f"train_loss={train_loss:.4f} val_loss={val_loss:.4f} "
+            f"val_miou={val_metrics['mean_iou']:.4f} best_miou={best_miou:.4f} "
+            f"no_improve={epochs_without_improvement}/{args.segmentation_patience}"
         )
+        if epochs_without_improvement >= args.segmentation_patience:
+            stopped_reason = "early_stopping"
+            write_training_summary(
+                checkpoint_dir.parent,
+                {
+                    "segmentation": {
+                        "best_epoch": best_epoch,
+                        "best_val_mean_iou": best_miou,
+                        "completed_epochs": epoch,
+                        "max_epochs": args.segmentation_epochs,
+                        "patience": args.segmentation_patience,
+                        "min_delta": args.segmentation_min_delta,
+                        "epochs_without_improvement": epochs_without_improvement,
+                        "stopped_reason": stopped_reason,
+                        "best_checkpoint": str(best_checkpoint_path),
+                        "last_checkpoint": str(last_checkpoint_path),
+                    }
+                },
+            )
+            print(
+                f"Segmentation early stopping at epoch {epoch}; "
+                f"best epoch {best_epoch}, best val_miou={best_miou:.4f}"
+            )
+            break
+    if not best_checkpoint_path.exists():
+        save_checkpoint(best_checkpoint_path, model, optimizer, completed_epochs, history, args)
+    return best_checkpoint_path
 
 
 def train_classification_stage(
@@ -508,6 +598,16 @@ def train_classification_stage(
     )
     report = {"test_loss": test_loss, "test_metrics": test_metrics, "checkpoint": str(checkpoint_dir / "recommended.pth")}
     (checkpoint_dir.parent / "test_metrics.json").write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+    write_training_summary(
+        checkpoint_dir.parent,
+        {
+            "classification": {
+                "completed_epochs": args.classification_epochs,
+                "best_checkpoint": str(checkpoint_dir / "recommended.pth"),
+                "test_metrics": test_metrics,
+            }
+        },
+    )
     generate_demo_outputs(model, split_records["test"], payload, demo_dir, device)
     print(json.dumps(report, indent=2, ensure_ascii=False))
 
@@ -1005,6 +1105,13 @@ def write_history(path: Path, history: list[dict[str, float | int | str]]) -> No
         writer = csv.DictWriter(file, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(history)
+
+
+def write_training_summary(run_dir: Path, update: dict[str, object]) -> None:
+    path = run_dir / "training_summary.json"
+    summary = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    summary.update(update)
+    path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def plot_combined_history(history: list[dict[str, float | int | str]], plots_dir: Path) -> None:
