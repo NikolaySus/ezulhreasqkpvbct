@@ -51,6 +51,25 @@ docker compose -f docker-compose.backend.yml up -d --build
 curl http://127.0.0.1:8001/api/health
 ```
 
+## Локальное дообучение классификационной головы
+
+Сайт это пока не использует: обучение запускается вручную в CUDA worker-контейнере, результаты пишутся в ignored `training-artifacts/`.
+
+```bash
+docker compose -f docker-compose.backend.yml build worker
+docker compose -f docker-compose.backend.yml run --rm --user "$(id -u):$(id -g)" worker \
+  python -m training.build_classification_dataset --overwrite
+docker compose -f docker-compose.backend.yml run --rm --user "$(id -u):$(id -g)" worker \
+  python -m training.train_classification_head
+```
+
+Быстрый smoke-тест:
+
+```bash
+docker compose -f docker-compose.backend.yml run --rm --user "$(id -u):$(id -g)" worker \
+  python -m training.train_classification_head --epochs 1 --max-images-per-class 8 --num-workers 0 --run-name smoke
+```
+
 Загрузка изображения на сегментацию:
 
 ```bash

@@ -42,6 +42,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       DATA_DIR: /data
       TORCH_HOME: /models/torch
+      MPLCONFIGDIR: /app/training-artifacts/.mpl-cache
       SEGMENTATION_MODEL_PATH: /model-artifacts/ml-days-2/saves/epoch_014.pth
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
@@ -50,6 +51,8 @@ services:
       - backend-data:/data
       - model-cache:/models
       - ./model-artifacts:/model-artifacts:ro
+      - ./training-artifacts:/app/training-artifacts
+      - /home/nop/Projects/nornik:/source-nornik:ro
 
 volumes:
   backend-data:

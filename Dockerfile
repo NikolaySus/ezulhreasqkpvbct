@@ -11,6 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 COPY nornik_app ./nornik_app
+COPY training ./training
 
 EXPOSE 8000
 

@@ -220,3 +220,4 @@ __marimo__/
 # Local annotation workspace data
 annotation-data/
 model-artifacts/
+training-artifacts/
