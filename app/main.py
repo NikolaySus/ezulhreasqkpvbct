@@ -147,15 +147,29 @@ async def get_job(job_id: str) -> dict[str, object]:
 
 @app.get("/api/jobs/{job_id}/result")
 async def get_job_result(job_id: str) -> FileResponse:
+    return _job_png_response(job_id, "segmentation_path", "segmentation")
+
+
+@app.get("/api/jobs/{job_id}/segmentation")
+async def get_job_segmentation(job_id: str) -> FileResponse:
+    return _job_png_response(job_id, "segmentation_path", "segmentation")
+
+
+@app.get("/api/jobs/{job_id}/difficulty-heatmap")
+async def get_job_difficulty_heatmap(job_id: str) -> FileResponse:
+    return _job_png_response(job_id, "difficulty_heatmap_path", "difficulty-heatmap")
+
+
+def _job_png_response(job_id: str, result_key: str, filename_suffix: str) -> FileResponse:
     job = _load_job(job_id)
     if job.get_status(refresh=True) != "finished":
-        raise HTTPException(status_code=409, detail="Segmentation job is not finished")
+        raise HTTPException(status_code=409, detail="Inference job is not finished")
 
-    result_path = _result_path_from_job(job)
+    result_path = _result_path_from_job(job, result_key)
     if not result_path.exists():
-        raise HTTPException(status_code=404, detail="Segmentation result is missing")
+        raise HTTPException(status_code=404, detail="Inference result is missing")
 
-    return FileResponse(result_path, media_type="image/png", filename=f"{job.id}-overlay.png")
+    return FileResponse(result_path, media_type="image/png", filename=f"{job.id}-{filename_suffix}.png")
 
 
 def _load_job(job_id: str) -> Job:
@@ -173,11 +187,16 @@ def _queue_position(job_id: str) -> int | None:
         return None
 
 
-def _result_path_from_job(job: Job) -> Path:
-    if isinstance(job.result, dict) and isinstance(job.result.get("result_path"), str):
-        result_path = Path(job.result["result_path"])
-    else:
+def _result_path_from_job(job: Job, result_key: str = "result_path") -> Path:
+    result = job.return_value(refresh=True)
+    if isinstance(result, dict) and isinstance(result.get(result_key), str):
+        result_path = Path(result[result_key])
+    elif result_key == "segmentation_path" and isinstance(result, dict) and isinstance(result.get("result_path"), str):
+        result_path = Path(result["result_path"])
+    elif result_key in {"result_path", "segmentation_path"}:
         result_path = RESULTS_DIR / f"{job.id}.png"
+    else:
+        raise HTTPException(status_code=404, detail="Inference result is missing")
 
     if DATA_DIR not in result_path.resolve().parents and result_path.resolve() != DATA_DIR:
         raise HTTPException(status_code=400, detail="Invalid result path")
@@ -199,9 +218,22 @@ def _job_analysis(job: Job) -> dict[str, object]:
         analysis["talc_ratio"] = float(talc_ratio)
         analysis["is_talcose"] = bool(result.get("is_talcose"))
 
+    difficulty_probability = result.get("difficulty_probability")
+    if isinstance(difficulty_probability, int | float):
+        analysis["difficulty_probability"] = float(difficulty_probability)
+        analysis["is_difficult"] = bool(result.get("is_difficult"))
+
+    verdict = result.get("verdict")
+    if isinstance(verdict, str):
+        analysis["verdict"] = verdict
+
     classes = result.get("classes")
     if isinstance(classes, list | tuple):
         analysis["classes"] = list(classes)
+
+    classification_classes = result.get("classification_classes")
+    if isinstance(classification_classes, list | tuple):
+        analysis["classification_classes"] = list(classification_classes)
 
     return {"analysis": analysis} if analysis else {}
 

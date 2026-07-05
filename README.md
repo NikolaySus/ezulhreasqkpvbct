@@ -33,10 +33,10 @@ https://disk.yandex.ru/d/jKwsqUQrtWii9Q
 
 MVP-заготовка: публичный nginx на VPS проксирует сайт на локальный FastAPI backend через reverse SSH tunnel. Backend отдает Jinja frontend, ставит задачи сегментации в Redis/RQ и запускает PyTorch inference на локальной NVIDIA GPU.
 
-Инференс сегментации интегрирован из локального проекта `ml-days-2`. Checkpoint модели не хранится в git; для локального запуска он должен лежать здесь:
+Инференс использует сегментационную и классификационную головы из локального проекта `ml-days-2`. Checkpoint модели не хранится в git; для локального запуска он должен лежать здесь:
 
 ```text
-model-artifacts/ml-days-2/saves/epoch_014.pth
+model-artifacts/ml-days-2/classification/recommended.pth
 ```
 
 ## Backend на локальном ПК

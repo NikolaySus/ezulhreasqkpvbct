@@ -274,6 +274,52 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 16px;
       }
+      .results-stack {
+        display: grid;
+        gap: 16px;
+      }
+      .result-metrics {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 16px;
+      }
+      .metric {
+        padding: 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: #f8fafc;
+      }
+      .metric-label {
+        color: #52616f;
+        font-size: 0.82rem;
+        font-weight: 700;
+      }
+      .metric-value {
+        margin-top: 4px;
+        color: #1f2933;
+        font-size: 1.05rem;
+        font-weight: 850;
+        overflow-wrap: anywhere;
+      }
+      .heatmap-legend {
+        display: grid;
+        gap: 8px;
+        margin: 8px 0 0;
+      }
+      .heatmap-scale {
+        height: 12px;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #10b981 0%, #facc15 50%, #dc2626 100%);
+      }
+      .heatmap-labels {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        color: #52616f;
+        font-size: 0.82rem;
+        font-weight: 700;
+      }
       figure {
         margin: 0;
       }
@@ -352,7 +398,8 @@
       }
       @media (max-width: 860px) {
         .workspace,
-        .images {
+        .images,
+        .result-metrics {
           grid-template-columns: 1fr;
         }
       }
@@ -414,8 +461,19 @@
           background: #374151;
         }
         .hint-list li,
-        .chip {
+        .chip,
+        .metric {
           border-color: #374151;
+        }
+        .metric {
+          background: #111827;
+        }
+        .metric-label,
+        .heatmap-labels {
+          color: #d1d5db;
+        }
+        .metric-value {
+          color: #f9fafb;
         }
         .swatch {
           border-color: rgba(249, 250, 251, 0.35);
@@ -450,8 +508,8 @@
           <form class="panel" id="segment-form">
             <h2>Инференс шлифа</h2>
             <p class="panel-note">
-              Подключена модель сегментации из ml-days-2. Сверхкрупные панорамы обрабатываются тайлами на GPU
-              и собираются обратно в единую маску; классификационная голова будет добавлена следующим этапом.
+              Подключена модель с сегментационной и классификационной головами. Панорамы обрабатываются тайлами на GPU:
+              маска фаз собирается в единое изображение, а вероятности труднообогатимости усредняются по тайлам.
             </p>
             <label for="image-input">Изображение шлифа</label>
             <input id="image-input" name="image" type="file" accept="image/png,image/jpeg,image/tiff,image/webp,.tif,.tiff" required>
@@ -467,9 +525,9 @@
               </div>
             </div>
             <ul class="hint-list" aria-label="Ожидаемый результат инференса">
-              <li>На выходе ожидается цветовая маска поверх исходного изображения.</li>
-              <li>Доля талька считается по синему классу; если она выше 10%, руда предварительно считается оталькованной.</li>
-              <li>Очередь GPU будет держать тайлы одного шлифа вместе, прежде чем переходить к следующему изображению.</li>
+              <li>На выходе ожидаются маска фаз и heatmap вероятности труднообогатимости.</li>
+              <li>Доля талька считается по синему классу; если она выше 10%, итоговый вердикт — оталькованная.</li>
+              <li>Если талька не больше 10%, вердикт берётся по средней вероятности труднообогатимости с порогом 0.5.</li>
             </ul>
             <ul class="legend" aria-label="Цвета маски">
               <li><span class="swatch ore"></span><span>Красный — сульфидные фазы, светлые рудные области.</span></li>
@@ -477,15 +535,23 @@
               <li><span class="swatch talc"></span><span>Синий — тальк как рассеянная тёмная фаза в нерудной матрице.</span></li>
               <li><span class="swatch damage"></span><span>Бордовый — дефекты и артефакты изображения/подготовки шлифа.</span></li>
             </ul>
+            <div class="heatmap-legend" aria-label="Цвета heatmap">
+              <div class="heatmap-scale"></div>
+              <div class="heatmap-labels">
+                <span>0.0 рядовая</span>
+                <span>0.5 порог</span>
+                <span>1.0 труднообогатимая</span>
+              </div>
+            </div>
           </form>
 
           <div class="preview" id="preview">
             <div class="preview-header">
               <div>
-                <h2 class="preview-title">Результат сегментации</h2>
-                <p class="preview-subtitle">Исходное изображение и маска будут показаны рядом.</p>
+                <h2 class="preview-title">Результат инференса</h2>
+                <p class="preview-subtitle">Исходное изображение, маска фаз и heatmap классификации будут показаны вместе.</p>
               </div>
-              <span class="badge">модель сегментации</span>
+              <span class="badge">две головы</span>
             </div>
             <div class="empty">
               <div class="empty-content">
@@ -585,15 +651,35 @@
       function showPreview(file) {
         const url = URL.createObjectURL(file);
         preview.innerHTML = `
+          <div class="result-metrics" id="result-metrics" hidden>
+            <div class="metric">
+              <div class="metric-label">Вердикт</div>
+              <div class="metric-value" id="metric-verdict">—</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Тальк</div>
+              <div class="metric-value" id="metric-talc">—</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">P(труднообогатимая)</div>
+              <div class="metric-value" id="metric-difficulty">—</div>
+            </div>
+          </div>
           <div class="images">
             <figure>
               <figcaption>Исходное изображение</figcaption>
               <img src="${url}" alt="Исходное изображение шлифа">
             </figure>
-            <figure>
-              <figcaption>Маска сегментации</figcaption>
-              <img id="result-image" alt="Результат сегментации">
-            </figure>
+            <div class="results-stack">
+              <figure>
+                <figcaption>Маска сегментации</figcaption>
+                <img id="segmentation-image" alt="Маска сегментации">
+              </figure>
+              <figure>
+                <figcaption>Heatmap вероятности труднообогатимости</figcaption>
+                <img id="difficulty-image" alt="Heatmap вероятности труднообогатимости">
+              </figure>
+            </div>
           </div>
         `;
       }
@@ -613,8 +699,12 @@
           statusNode.textContent = jobStatusText(jobId, data);
 
           if (data.status === "finished") {
-            const result = document.querySelector("#result-image");
-            result.src = `${data.result_url}?t=${Date.now()}`;
+            const cacheBust = Date.now();
+            const segmentation = document.querySelector("#segmentation-image");
+            const difficulty = document.querySelector("#difficulty-image");
+            segmentation.src = `/api/jobs/${jobId}/segmentation?t=${cacheBust}`;
+            difficulty.src = `/api/jobs/${jobId}/difficulty-heatmap?t=${cacheBust}`;
+            renderMetrics(data.analysis);
             statusNode.classList.add("ready");
             statusNode.textContent = finishedStatusText(data);
             setProgress(100, `Готово за ${formatElapsed(elapsedSeconds())}`);
@@ -770,14 +860,35 @@
       }
 
       function finishedStatusText(data) {
-        const talcRatio = data.analysis?.talc_ratio;
-        if (typeof talcRatio === "number") {
-          const talcPercent = (talcRatio * 100).toFixed(1);
-          const label = data.analysis?.is_talcose ? "оталькованная руда" : "не оталькованная руда";
-          return `Сегментация завершена. Тальк: ${talcPercent}%. Предварительно: ${label}.`;
+        const analysis = data.analysis || {};
+        const talcRatio = analysis.talc_ratio;
+        const difficulty = analysis.difficulty_probability;
+        const verdict = analysis.verdict;
+        if (typeof talcRatio === "number" && typeof difficulty === "number" && typeof verdict === "string") {
+          return `Инференс завершён. Вердикт: ${verdict}. Тальк: ${formatPercent(talcRatio)}. P(труднообогатимая): ${formatPercent(difficulty)}.`;
         }
 
-        return "Сегментация завершена";
+        return "Инференс завершён";
+      }
+
+      function renderMetrics(analysis) {
+        const metrics = document.querySelector("#result-metrics");
+        if (!metrics || !analysis) {
+          return;
+        }
+
+        document.querySelector("#metric-verdict").textContent = analysis.verdict || "—";
+        document.querySelector("#metric-talc").textContent = typeof analysis.talc_ratio === "number"
+          ? formatPercent(analysis.talc_ratio)
+          : "—";
+        document.querySelector("#metric-difficulty").textContent = typeof analysis.difficulty_probability === "number"
+          ? formatPercent(analysis.difficulty_probability)
+          : "—";
+        metrics.hidden = false;
+      }
+
+      function formatPercent(value) {
+        return `${(value * 100).toFixed(1)}%`;
       }
 
       checkBackend();
