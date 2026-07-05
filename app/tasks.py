@@ -122,7 +122,7 @@ def _load_model():
         if not SEGMENTATION_MODEL_PATH.exists():
             raise FileNotFoundError(
                 f"Segmentation checkpoint not found: {SEGMENTATION_MODEL_PATH}. "
-                "Place ml-days-2 save_1.pth under model-artifacts/ml-days-2/saves/."
+                "Place ml-days-2 epoch_014.pth under model-artifacts/ml-days-2/saves/."
             )
 
         _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
