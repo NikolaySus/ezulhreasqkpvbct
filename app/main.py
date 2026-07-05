@@ -10,13 +10,21 @@ from rq.job import Job
 app = FastAPI(title="MVP Backend")
 
 from app.queue import QUEUE_NAME, get_queue, get_redis
-from app.settings import DATA_DIR, MAX_UPLOAD_BYTES, RESULTS_DIR, UPLOADS_DIR
+from app.settings import (
+    ANNOTATION_DATA_DIR,
+    ANNOTATION_EDITING_ENABLED,
+    DATA_DIR,
+    MAX_UPLOAD_BYTES,
+    RESULTS_DIR,
+    UPLOADS_DIR,
+)
 from app.tasks import segment_image
 
 ALLOWED_CONTENT_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
 
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+ANNOTATION_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 @app.get("/")
@@ -49,6 +57,15 @@ async def api_health() -> dict[str, object]:
 @app.get("/api/hello")
 async def api_hello() -> dict[str, str]:
     return {"message": "Hello from the local FastAPI backend"}
+
+
+@app.get("/api/annotation/status")
+async def annotation_status() -> dict[str, object]:
+    return {
+        "editing_enabled": ANNOTATION_EDITING_ENABLED,
+        "mode": "unlocked" if ANNOTATION_EDITING_ENABLED else "locked",
+        "data_dir": str(ANNOTATION_DATA_DIR),
+    }
 
 
 @app.post("/api/segment", status_code=202)

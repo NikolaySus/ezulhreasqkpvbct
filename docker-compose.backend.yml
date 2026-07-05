@@ -18,6 +18,8 @@ services:
       DATA_DIR: /data
       TORCH_HOME: /models/torch
       MAX_UPLOAD_BYTES: 10485760
+      ANNOTATION_DATA_DIR: /annotation-data
+      ANNOTATION_EDITING_ENABLED: "false"
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
     gpus: all
@@ -26,6 +28,7 @@ services:
     volumes:
       - backend-data:/data
       - model-cache:/models
+      - ./annotation-data:/annotation-data
 
   worker:
     build: .

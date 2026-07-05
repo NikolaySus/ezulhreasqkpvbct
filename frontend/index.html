@@ -21,7 +21,7 @@
         padding: 32px 0;
       }
       header {
-        margin-bottom: 24px;
+        margin-bottom: 20px;
       }
       h1 {
         margin: 0 0 8px;
@@ -33,6 +33,32 @@
         color: #52616f;
         font-size: 1.0625rem;
       }
+      .tabs {
+        display: flex;
+        gap: 8px;
+        margin: 0 0 24px;
+        border-bottom: 1px solid #d9dee7;
+      }
+      .tab-button {
+        width: auto;
+        min-height: 42px;
+        padding: 0 18px;
+        border: 0;
+        border-radius: 8px 8px 0 0;
+        background: transparent;
+        color: #52616f;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .tab-button[aria-selected="true"] {
+        background: #ffffff;
+        color: #0f766e;
+        box-shadow: inset 0 -3px 0 #0f766e;
+      }
+      .tab-panel[hidden] {
+        display: none;
+      }
       .workspace {
         display: grid;
         grid-template-columns: 340px 1fr;
@@ -40,12 +66,14 @@
         align-items: start;
       }
       .panel,
-      .preview {
+      .preview,
+      .placeholder {
         border: 1px solid #d9dee7;
         border-radius: 8px;
         background: #ffffff;
       }
-      .panel {
+      .panel,
+      .placeholder {
         padding: 20px;
       }
       label {
@@ -113,6 +141,41 @@
         color: #52616f;
         text-align: center;
       }
+      .placeholder {
+        min-height: 360px;
+      }
+      .placeholder h2 {
+        margin: 0 0 12px;
+        font-size: 1.5rem;
+      }
+      .placeholder dl {
+        display: grid;
+        grid-template-columns: max-content minmax(0, 1fr);
+        gap: 10px 16px;
+        margin: 20px 0 0;
+      }
+      .placeholder dt {
+        color: #52616f;
+      }
+      .placeholder dd {
+        margin: 0;
+        font-weight: 650;
+        overflow-wrap: anywhere;
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        padding: 0 10px;
+        border-radius: 999px;
+        background: #e8edf3;
+        color: #1f2933;
+        font-weight: 750;
+      }
+      .badge.unlocked {
+        background: #d1fae5;
+        color: #065f46;
+      }
       @media (max-width: 860px) {
         .workspace,
         .images {
@@ -127,15 +190,25 @@
         p,
         .status,
         figcaption,
-        .empty {
+        .empty,
+        .placeholder dt {
           color: #d1d5db;
         }
+        .tabs {
+          border-bottom-color: #374151;
+        }
+        .tab-button {
+          color: #d1d5db;
+        }
+        .tab-button[aria-selected="true"],
         .panel,
-        .preview {
+        .preview,
+        .placeholder {
           background: #1f2937;
           border-color: #374151;
         }
-        img {
+        img,
+        .badge {
           background: #111827;
         }
       }
@@ -145,19 +218,39 @@
     <main>
       <header>
         <h1>Image Segmentation</h1>
-        <p>Загрузите изображение, backend поставит задачу в очередь и обработает ее на локальной GPU.</p>
+        <p>Загрузите изображение для инференса или проверьте состояние будущей доразметки.</p>
       </header>
 
-      <section class="workspace">
-        <form class="panel" id="segment-form">
-          <label for="image-input">Image</label>
-          <input id="image-input" name="image" type="file" accept="image/png,image/jpeg,image/webp" required>
-          <button id="submit-button" type="submit">Segment image</button>
-          <div class="status" id="status">Backend status: checking...</div>
-        </form>
+      <nav class="tabs" aria-label="Workspace tabs">
+        <button class="tab-button" type="button" data-tab="inference" aria-selected="true">Инференс</button>
+        <button class="tab-button" type="button" data-tab="annotation" aria-selected="false">Доразметка</button>
+      </nav>
 
-        <div class="preview" id="preview">
-          <div class="empty">Upload an image to see the segmentation overlay.</div>
+      <section class="tab-panel" id="inference-tab">
+        <section class="workspace">
+          <form class="panel" id="segment-form">
+            <label for="image-input">Image</label>
+            <input id="image-input" name="image" type="file" accept="image/png,image/jpeg,image/webp" required>
+            <button id="submit-button" type="submit">Segment image</button>
+            <div class="status" id="status">Backend status: checking...</div>
+          </form>
+
+          <div class="preview" id="preview">
+            <div class="empty">Upload an image to see the segmentation overlay.</div>
+          </div>
+        </section>
+      </section>
+
+      <section class="tab-panel" id="annotation-tab" hidden>
+        <div class="placeholder">
+          <h2>Доразметка</h2>
+          <p id="annotation-copy">Проверяем режим backend...</p>
+          <dl>
+            <dt>Mode</dt>
+            <dd><span class="badge" id="annotation-mode">checking</span></dd>
+            <dt>Data dir</dt>
+            <dd id="annotation-data-dir">checking...</dd>
+          </dl>
         </div>
       </section>
     </main>
@@ -168,6 +261,29 @@
       const button = document.querySelector("#submit-button");
       const statusNode = document.querySelector("#status");
       const preview = document.querySelector("#preview");
+      const tabButtons = document.querySelectorAll(".tab-button");
+      const inferenceTab = document.querySelector("#inference-tab");
+      const annotationTab = document.querySelector("#annotation-tab");
+      const annotationCopy = document.querySelector("#annotation-copy");
+      const annotationMode = document.querySelector("#annotation-mode");
+      const annotationDataDir = document.querySelector("#annotation-data-dir");
+
+      tabButtons.forEach((tabButton) => {
+        tabButton.addEventListener("click", () => selectTab(tabButton.dataset.tab));
+      });
+
+      function selectTab(tab) {
+        tabButtons.forEach((tabButton) => {
+          tabButton.setAttribute("aria-selected", String(tabButton.dataset.tab === tab));
+        });
+
+        inferenceTab.hidden = tab !== "inference";
+        annotationTab.hidden = tab !== "annotation";
+
+        if (tab === "annotation") {
+          loadAnnotationStatus();
+        }
+      }
 
       async function checkBackend() {
         try {
@@ -176,6 +292,28 @@
           statusNode.textContent = `Backend: ${data.status}, redis: ${data.redis}, cuda: ${data.cuda_available}`;
         } catch (error) {
           statusNode.textContent = "Backend unavailable";
+        }
+      }
+
+      async function loadAnnotationStatus() {
+        try {
+          const response = await fetch("/api/annotation/status", { cache: "no-store" });
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.detail || "Annotation status unavailable");
+          }
+
+          annotationMode.textContent = data.mode;
+          annotationMode.classList.toggle("unlocked", data.editing_enabled);
+          annotationDataDir.textContent = data.data_dir;
+          annotationCopy.textContent = data.editing_enabled
+            ? "Редактирование доразметки разблокировано для локальной работы. Публичный frontend в таком режиме должен быть выключен."
+            : "Редактирование доразметки заблокировано. Этот режим безопасен для публичного frontend; интеграция редактора будет добавлена позже.";
+        } catch (error) {
+          annotationMode.textContent = "unavailable";
+          annotationMode.classList.remove("unlocked");
+          annotationDataDir.textContent = "unknown";
+          annotationCopy.textContent = error.message || "Не удалось получить состояние доразметки.";
         }
       }
 

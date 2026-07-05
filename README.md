@@ -27,6 +27,18 @@ curl http://127.0.0.1:8001/api/jobs/<job_id>
 curl -o result.png http://127.0.0.1:8001/api/jobs/<job_id>/result
 ```
 
+## Доразметка
+
+Файлы будущей системы доразметки лежат в локальной папке `annotation-data/`; она игнорируется git.
+
+По умолчанию backend запускается в заблокированном режиме:
+
+```bash
+curl http://127.0.0.1:8001/api/annotation/status
+```
+
+Разблокированный режим предназначен только для локальной работы при выключенном публичном frontend/tunnel. Для него нужно переопределить `ANNOTATION_EDITING_ENABLED=true` у backend API.
+
 ## Reverse SSH tunnel с ПК на VPS
 
 Один раз добавить публичный ключ ПК на VPS:
