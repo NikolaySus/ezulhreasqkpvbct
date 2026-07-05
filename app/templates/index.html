@@ -359,8 +359,8 @@
           <form class="panel" id="segment-form">
             <h2>Инференс шлифа</h2>
             <p class="panel-note">
-              Сейчас подключена демонстрационная модель. Интерфейс подготовлен под будущий inference:
-              сверхкрупные панорамы будут обрабатываться тайлами на GPU и собираться обратно в единую маску.
+              Подключена модель сегментации из ml-days-2. Сверхкрупные панорамы обрабатываются тайлами на GPU
+              и собираются обратно в единую маску; классификационная голова будет добавлена следующим этапом.
             </p>
             <label for="image-input">Изображение шлифа</label>
             <input id="image-input" name="image" type="file" accept="image/png,image/jpeg,image/tiff,image/webp,.tif,.tiff" required>
@@ -379,12 +379,12 @@
                 <h2 class="preview-title">Результат сегментации</h2>
                 <p class="preview-subtitle">Исходное изображение и маска будут показаны рядом.</p>
               </div>
-              <span class="badge">демо-модель</span>
+              <span class="badge">модель сегментации</span>
             </div>
             <div class="empty">
               <div class="empty-content">
                 <div class="empty-title">Загрузите микроснимок шлифа</div>
-                <p>Подойдут TIFF, PNG, JPEG или WebP. Текущий backend ограничивает размер демо-загрузки, будущий inference рассчитан на очень большие панорамные снимки.</p>
+                <p>Подойдут TIFF, PNG, JPEG или WebP. Инференс рассчитан на очень большие панорамные снимки и обрабатывает их тайлами.</p>
               </div>
             </div>
           </div>
@@ -498,7 +498,7 @@
             const result = document.querySelector("#result-image");
             result.src = `${data.result_url}?t=${Date.now()}`;
             statusNode.classList.add("ready");
-            statusNode.textContent = "Сегментация завершена";
+            statusNode.textContent = finishedStatusText(data);
             return;
           }
 
@@ -521,6 +521,17 @@
         }
 
         return `Задача ${jobId}: ${data.status}`;
+      }
+
+      function finishedStatusText(data) {
+        const talcRatio = data.analysis?.talc_ratio;
+        if (typeof talcRatio === "number") {
+          const talcPercent = (talcRatio * 100).toFixed(1);
+          const label = data.analysis?.is_talcose ? "оталькованная руда" : "не оталькованная руда";
+          return `Сегментация завершена. Тальк: ${talcPercent}%. Предварительно: ${label}.`;
+        }
+
+        return "Сегментация завершена";
       }
 
       checkBackend();

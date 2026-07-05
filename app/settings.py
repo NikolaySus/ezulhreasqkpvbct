@@ -7,7 +7,10 @@ RESULTS_DIR = DATA_DIR / "results"
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 QUEUE_NAME = os.getenv("QUEUE_NAME", "segmentation")
-MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)))
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(2 * 1024 * 1024 * 1024)))
+SEGMENTATION_MODEL_PATH = Path(
+    os.getenv("SEGMENTATION_MODEL_PATH", "/model-artifacts/ml-days-2/saves/save_1.pth")
+).resolve()
 
 ANNOTATION_DATA_DIR = Path(os.getenv("ANNOTATION_DATA_DIR", "/annotation-data")).resolve()
 ANNOTATION_EDITING_ENABLED = os.getenv("ANNOTATION_EDITING_ENABLED", "false").lower() in {

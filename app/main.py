@@ -108,7 +108,7 @@ async def create_segmentation_job(image: UploadFile = File(...)) -> dict[str, st
             size += len(chunk)
             if size > MAX_UPLOAD_BYTES:
                 upload_path.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail="Image is larger than 10 MB")
+                raise HTTPException(status_code=413, detail=f"Image is larger than {MAX_UPLOAD_BYTES // (1024 * 1024)} MB")
             target.write(chunk)
 
     queue = get_queue()
@@ -135,6 +135,7 @@ async def get_job(job_id: str) -> dict[str, object]:
         response["queue_position"] = _queue_position(job.id)
     elif status == "finished":
         response["result_url"] = f"/api/jobs/{job.id}/result"
+        response.update(_job_analysis(job))
     elif status == "failed":
         response["error"] = _format_error(job)
 
@@ -178,6 +179,28 @@ def _result_path_from_job(job: Job) -> Path:
     if DATA_DIR not in result_path.resolve().parents and result_path.resolve() != DATA_DIR:
         raise HTTPException(status_code=400, detail="Invalid result path")
     return result_path
+
+
+def _job_analysis(job: Job) -> dict[str, object]:
+    try:
+        result = job.return_value(refresh=True)
+    except Exception:
+        return {}
+
+    if not isinstance(result, dict):
+        return {}
+
+    analysis: dict[str, object] = {}
+    talc_ratio = result.get("talc_ratio")
+    if isinstance(talc_ratio, int | float):
+        analysis["talc_ratio"] = float(talc_ratio)
+        analysis["is_talcose"] = bool(result.get("is_talcose"))
+
+    classes = result.get("classes")
+    if isinstance(classes, list | tuple):
+        analysis["classes"] = list(classes)
+
+    return {"analysis": analysis} if analysis else {}
 
 
 def _format_error(job: Job) -> str:
