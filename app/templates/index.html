@@ -171,6 +171,41 @@
         font-size: 0.92rem;
         line-height: 1.35;
       }
+      .legend {
+        display: grid;
+        gap: 10px;
+        margin: 18px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+      .legend li {
+        display: grid;
+        grid-template-columns: 18px 1fr;
+        gap: 10px;
+        align-items: start;
+        color: #52616f;
+        font-size: 0.92rem;
+        line-height: 1.35;
+      }
+      .swatch {
+        width: 18px;
+        height: 18px;
+        margin-top: 2px;
+        border-radius: 4px;
+        border: 1px solid rgba(15, 23, 42, 0.2);
+      }
+      .swatch.ore {
+        background: #ed1c24;
+      }
+      .swatch.matrix {
+        background: #fff200;
+      }
+      .swatch.talc {
+        background: #3f48cc;
+      }
+      .swatch.damage {
+        background: #880015;
+      }
       .preview {
         min-height: 520px;
         padding: 20px;
@@ -297,7 +332,8 @@
         .placeholder dt,
         .panel-note,
         .preview-subtitle,
-        .hint-list li {
+        .hint-list li,
+        .legend li {
           color: #d1d5db;
         }
         .tabs {
@@ -328,6 +364,9 @@
         .hint-list li,
         .chip {
           border-color: #374151;
+        }
+        .swatch {
+          border-color: rgba(249, 250, 251, 0.35);
         }
       }
     </style>
@@ -368,8 +407,14 @@
             <div class="status" id="status">Проверяем backend...</div>
             <ul class="hint-list" aria-label="Ожидаемый результат инференса">
               <li>На выходе ожидается цветовая маска поверх исходного изображения.</li>
-              <li>Будущая модель рассчитает доли фаз и поможет отличать рядовую, оталькованную и труднообогатимую руду.</li>
+              <li>Доля талька считается по синему классу; если она выше 10%, руда предварительно считается оталькованной.</li>
               <li>Очередь GPU будет держать тайлы одного шлифа вместе, прежде чем переходить к следующему изображению.</li>
+            </ul>
+            <ul class="legend" aria-label="Цвета маски">
+              <li><span class="swatch ore"></span><span>Красный — сульфидные фазы, светлые рудные области.</span></li>
+              <li><span class="swatch matrix"></span><span>Жёлтый — силикатная/оксидная матрица, тёмные и серые нерудные области.</span></li>
+              <li><span class="swatch talc"></span><span>Синий — тальк как рассеянная тёмная фаза в нерудной матрице.</span></li>
+              <li><span class="swatch damage"></span><span>Бордовый — дефекты и артефакты изображения/подготовки шлифа.</span></li>
             </ul>
           </form>
 
@@ -451,7 +496,7 @@
           body.append("image", file);
 
           const response = await fetch("/api/segment", { method: "POST", body });
-          const data = await response.json();
+          const data = await readJsonResponse(response, "Загрузка не удалась");
           if (!response.ok) {
             throw new Error(data.detail || "Загрузка не удалась");
           }
@@ -487,7 +532,7 @@
         while (true) {
           await new Promise((resolve) => setTimeout(resolve, 1000));
           const response = await fetch(`/api/jobs/${jobId}`, { cache: "no-store" });
-          const data = await response.json();
+          const data = await readJsonResponse(response, "Не удалось получить статус задачи");
           if (!response.ok) {
             throw new Error(data.detail || "Не удалось получить статус задачи");
           }
@@ -521,6 +566,18 @@
         }
 
         return `Задача ${jobId}: ${data.status}`;
+      }
+
+      async function readJsonResponse(response, fallbackMessage) {
+        const contentType = response.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+          return response.json();
+        }
+
+        const text = await response.text();
+        const detail = text.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+        const status = response.status ? `HTTP ${response.status}` : "HTTP error";
+        throw new Error(detail ? `${status}: ${detail}` : `${status}: ${fallbackMessage}`);
       }
 
       function finishedStatusText(data) {
