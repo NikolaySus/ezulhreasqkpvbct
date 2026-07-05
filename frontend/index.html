@@ -235,7 +235,7 @@
             throw new Error(data.detail || "Job status request failed");
           }
 
-          statusNode.textContent = `Job ${jobId}: ${data.status}`;
+          statusNode.textContent = jobStatusText(jobId, data);
 
           if (data.status === "finished") {
             const result = document.querySelector("#result-image");
@@ -248,6 +248,21 @@
             throw new Error(data.error || "Segmentation job failed");
           }
         }
+      }
+
+      function jobStatusText(jobId, data) {
+        if (data.status === "queued" && Number.isInteger(data.queue_position)) {
+          if (data.queue_position > 1) {
+            return `Похоже, кто-то решил протестировать систему параллельно с Вами. Ваше место в очереди: ${data.queue_position}.`;
+          }
+          return "Ваше место в очереди: 1. Задача скоро начнет обрабатываться.";
+        }
+
+        if (data.status === "started") {
+          return "Изображение обрабатывается на GPU...";
+        }
+
+        return `Job ${jobId}: ${data.status}`;
       }
 
       checkBackend();

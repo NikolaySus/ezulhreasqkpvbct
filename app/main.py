@@ -90,7 +90,9 @@ async def get_job(job_id: str) -> dict[str, object]:
     status = job.get_status(refresh=True)
     response: dict[str, object] = {"job_id": job.id, "status": status}
 
-    if status == "finished":
+    if status == "queued":
+        response["queue_position"] = _queue_position(job.id)
+    elif status == "finished":
         response["result_url"] = f"/api/jobs/{job.id}/result"
     elif status == "failed":
         response["error"] = _format_error(job)
@@ -116,6 +118,14 @@ def _load_job(job_id: str) -> Job:
         return Job.fetch(job_id, connection=get_redis())
     except Exception as exc:
         raise HTTPException(status_code=404, detail="Job not found") from exc
+
+
+def _queue_position(job_id: str) -> int | None:
+    job_ids = get_queue().job_ids
+    try:
+        return job_ids.index(job_id) + 1
+    except ValueError:
+        return None
 
 
 def _result_path_from_job(job: Job) -> Path:
