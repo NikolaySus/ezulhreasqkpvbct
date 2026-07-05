@@ -3,12 +3,12 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Image Segmentation MVP</title>
+    <title>Скажи мне кто твой шлиф</title>
     <style>
       :root {
         color-scheme: light dark;
         font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: #f4f6f8;
+        background: #f5f6f8;
         color: #1f2933;
       }
       body {
@@ -21,17 +21,47 @@
         padding: 32px 0;
       }
       header {
-        margin-bottom: 20px;
+        margin-bottom: 22px;
       }
       h1 {
         margin: 0 0 8px;
-        font-size: clamp(2rem, 5vw, 3.5rem);
+        font-size: clamp(2rem, 5vw, 3.25rem);
         line-height: 1;
       }
       p {
         margin: 0;
         color: #52616f;
         font-size: 1.0625rem;
+      }
+      .eyebrow {
+        margin-bottom: 10px;
+        color: #0f766e;
+        font-size: 0.85rem;
+        font-weight: 800;
+        letter-spacing: 0;
+        text-transform: uppercase;
+      }
+      .hero-text {
+        max-width: 780px;
+        line-height: 1.55;
+      }
+      .hero-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 18px;
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        min-height: 30px;
+        padding: 0 10px;
+        border: 1px solid #cfd6df;
+        border-radius: 999px;
+        background: #f8fafc;
+        color: #324252;
+        font-size: 0.9rem;
+        font-weight: 700;
       }
       .tabs {
         display: flex;
@@ -61,7 +91,7 @@
       }
       .workspace {
         display: grid;
-        grid-template-columns: 340px 1fr;
+        grid-template-columns: 360px 1fr;
         gap: 24px;
         align-items: start;
       }
@@ -75,6 +105,16 @@
       .panel,
       .placeholder {
         padding: 20px;
+      }
+      .panel h2 {
+        margin: 0 0 8px;
+        font-size: 1.35rem;
+        line-height: 1.2;
+      }
+      .panel-note {
+        margin-bottom: 18px;
+        font-size: 0.98rem;
+        line-height: 1.45;
       }
       label {
         display: block;
@@ -107,9 +147,50 @@
         color: #52616f;
         overflow-wrap: anywhere;
       }
+      .status.ready {
+        color: #0f766e;
+        font-weight: 700;
+      }
+      .status.error {
+        color: #b91c1c;
+        font-weight: 700;
+      }
+      .hint-list {
+        display: grid;
+        gap: 10px;
+        margin: 18px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+      .hint-list li {
+        padding: 10px 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: #f8fafc;
+        color: #52616f;
+        font-size: 0.92rem;
+        line-height: 1.35;
+      }
       .preview {
         min-height: 520px;
         padding: 20px;
+      }
+      .preview-header {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 16px;
+      }
+      .preview-title {
+        margin: 0;
+        font-size: 1.2rem;
+        line-height: 1.2;
+      }
+      .preview-subtitle {
+        margin: 4px 0 0;
+        color: #52616f;
+        font-size: 0.92rem;
       }
       .images {
         display: grid;
@@ -140,6 +221,15 @@
         place-items: center;
         color: #52616f;
         text-align: center;
+      }
+      .empty-content {
+        max-width: 560px;
+      }
+      .empty-title {
+        margin: 0 0 8px;
+        color: #1f2933;
+        font-size: 1.4rem;
+        font-weight: 800;
       }
       .placeholder {
         min-height: 360px;
@@ -194,11 +284,20 @@
           background: #111827;
           color: #f9fafb;
         }
+        .panel,
+        .preview,
+        .placeholder {
+          background: #1f2937;
+          border-color: #374151;
+        }
         p,
         .status,
         figcaption,
         .empty,
-        .placeholder dt {
+        .placeholder dt,
+        .panel-note,
+        .preview-subtitle,
+        .hint-list li {
           color: #d1d5db;
         }
         .tabs {
@@ -207,16 +306,28 @@
         .tab-button {
           color: #d1d5db;
         }
-        .tab-button[aria-selected="true"],
-        .panel,
-        .preview,
-        .placeholder {
+        .tab-button[aria-selected="true"] {
           background: #1f2937;
           border-color: #374151;
         }
         img,
-        .badge {
+        .badge,
+        .chip,
+        .hint-list li {
           background: #111827;
+        }
+        .empty-title {
+          color: #f9fafb;
+        }
+        .status.ready {
+          color: #34d399;
+        }
+        .status.error {
+          color: #fca5a5;
+        }
+        .hint-list li,
+        .chip {
+          border-color: #374151;
         }
       }
     </style>
@@ -224,8 +335,18 @@
   <body>
     <main>
       <header>
-        <h1>Image Segmentation</h1>
-        <p>Загрузите изображение для инференса или проверьте состояние будущей доразметки.</p>
+        <div class="eyebrow">Nornickel AI Hackathon · Task 3</div>
+        <h1>Скажи мне кто твой шлиф</h1>
+        <p class="hero-text">
+          Рабочий стенд для автоматической сегментации панорамных OM-изображений полированных шлифов:
+          маска фаз, оценка срастаний и подготовка данных для классификации руды.
+        </p>
+        <div class="hero-meta" aria-label="Ключевые возможности">
+          <span class="chip">Сульфиды</span>
+          <span class="chip">Тальк</span>
+          <span class="chip">Обычные и тонкие срастания</span>
+          <span class="chip">Доразметка геологом</span>
+        </div>
       </header>
 
       <nav class="tabs" aria-label="Workspace tabs">
@@ -236,14 +357,36 @@
       <section class="tab-panel" id="inference-tab">
         <section class="workspace">
           <form class="panel" id="segment-form">
-            <label for="image-input">Image</label>
+            <h2>Инференс шлифа</h2>
+            <p class="panel-note">
+              Сейчас подключена демонстрационная модель. Интерфейс подготовлен под будущий inference:
+              крупные панорамы до 20 000 x 20 000 пикселей будут обрабатываться тайлами на GPU и собираться обратно в единую маску.
+            </p>
+            <label for="image-input">Изображение шлифа</label>
             <input id="image-input" name="image" type="file" accept="image/png,image/jpeg,image/webp" required>
-            <button id="submit-button" type="submit">Segment image</button>
-            <div class="status" id="status">Backend status: checking...</div>
+            <button id="submit-button" type="submit">Запустить сегментацию</button>
+            <div class="status" id="status">Проверяем backend...</div>
+            <ul class="hint-list" aria-label="Ожидаемый результат инференса">
+              <li>На выходе ожидается цветовая маска поверх исходного изображения.</li>
+              <li>Будущая модель рассчитает доли фаз и поможет отличать рядовую, оталькованную и труднообогатимую руду.</li>
+              <li>Очередь GPU будет держать тайлы одного шлифа вместе, прежде чем переходить к следующему изображению.</li>
+            </ul>
           </form>
 
           <div class="preview" id="preview">
-            <div class="empty">Upload an image to see the segmentation overlay.</div>
+            <div class="preview-header">
+              <div>
+                <h2 class="preview-title">Результат сегментации</h2>
+                <p class="preview-subtitle">Исходное изображение и маска будут показаны рядом.</p>
+              </div>
+              <span class="badge">демо-модель</span>
+            </div>
+            <div class="empty">
+              <div class="empty-content">
+                <div class="empty-title">Загрузите микроснимок шлифа</div>
+                <p>Подойдут PNG, JPEG или WebP. Текущий backend ограничивает размер демо-загрузки, будущий inference рассчитан на панорамы до 20 000 x 20 000 пикселей.</p>
+              </div>
+            </div>
           </div>
         </section>
       </section>
@@ -281,9 +424,13 @@
         try {
           const response = await fetch("/api/health", { cache: "no-store" });
           const data = await response.json();
-          statusNode.textContent = `Backend: ${data.status}, redis: ${data.redis}, cuda: ${data.cuda_available}`;
+          statusNode.classList.remove("error");
+          statusNode.classList.add("ready");
+          statusNode.textContent = `Backend готов: ${data.status}, очередь: ${data.redis}, CUDA: ${data.cuda_available ? "доступна" : "недоступна"}`;
         } catch (error) {
-          statusNode.textContent = "Backend unavailable";
+          statusNode.classList.remove("ready");
+          statusNode.classList.add("error");
+          statusNode.textContent = "Backend недоступен";
         }
       }
 
@@ -295,7 +442,8 @@
         }
 
         button.disabled = true;
-        statusNode.textContent = "Uploading image...";
+        statusNode.classList.remove("ready", "error");
+        statusNode.textContent = "Загружаем изображение...";
         showPreview(file);
 
         try {
@@ -305,12 +453,13 @@
           const response = await fetch("/api/segment", { method: "POST", body });
           const data = await response.json();
           if (!response.ok) {
-            throw new Error(data.detail || "Upload failed");
+            throw new Error(data.detail || "Загрузка не удалась");
           }
 
           await pollJob(data.job_id);
         } catch (error) {
-          statusNode.textContent = error.message || "Segmentation failed";
+          statusNode.classList.add("error");
+          statusNode.textContent = error.message || "Сегментация не удалась";
         } finally {
           button.disabled = false;
         }
@@ -321,26 +470,26 @@
         preview.innerHTML = `
           <div class="images">
             <figure>
-              <figcaption>Original</figcaption>
-              <img src="${url}" alt="Original image">
+              <figcaption>Исходное изображение</figcaption>
+              <img src="${url}" alt="Исходное изображение шлифа">
             </figure>
             <figure>
-              <figcaption>Segmentation overlay</figcaption>
-              <img id="result-image" alt="Segmentation result">
+              <figcaption>Маска сегментации</figcaption>
+              <img id="result-image" alt="Результат сегментации">
             </figure>
           </div>
         `;
       }
 
       async function pollJob(jobId) {
-        statusNode.textContent = `Queued: ${jobId}`;
+        statusNode.textContent = `Задача поставлена в очередь: ${jobId}`;
 
         while (true) {
           await new Promise((resolve) => setTimeout(resolve, 1000));
           const response = await fetch(`/api/jobs/${jobId}`, { cache: "no-store" });
           const data = await response.json();
           if (!response.ok) {
-            throw new Error(data.detail || "Job status request failed");
+            throw new Error(data.detail || "Не удалось получить статус задачи");
           }
 
           statusNode.textContent = jobStatusText(jobId, data);
@@ -348,12 +497,13 @@
           if (data.status === "finished") {
             const result = document.querySelector("#result-image");
             result.src = `${data.result_url}?t=${Date.now()}`;
-            statusNode.textContent = "Segmentation finished";
+            statusNode.classList.add("ready");
+            statusNode.textContent = "Сегментация завершена";
             return;
           }
 
           if (data.status === "failed") {
-            throw new Error(data.error || "Segmentation job failed");
+            throw new Error(data.error || "Задача сегментации завершилась ошибкой");
           }
         }
       }
@@ -370,7 +520,7 @@
           return "Изображение обрабатывается на GPU...";
         }
 
-        return `Job ${jobId}: ${data.status}`;
+        return `Задача ${jobId}: ${data.status}`;
       }
 
       checkBackend();
