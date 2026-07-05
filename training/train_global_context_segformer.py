@@ -350,6 +350,9 @@ def main() -> None:
     history: list[dict[str, float | int | str]] = []
     if args.resume_checkpoint is not None:
         history = load_checkpoint(model, args.resume_checkpoint, device)
+    existing_history_path = run_dir / "history.csv"
+    if existing_history_path.exists():
+        history = read_history(existing_history_path)
     write_run_config(run_dir, args, device)
 
     if not args.skip_segmentation_stage:
@@ -1109,6 +1112,11 @@ def write_history(path: Path, history: list[dict[str, float | int | str]]) -> No
         writer = csv.DictWriter(file, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(history)
+
+
+def read_history(path: Path) -> list[dict[str, str]]:
+    with path.open(newline="", encoding="utf-8") as file:
+        return list(csv.DictReader(file))
 
 
 def write_training_summary(run_dir: Path, update: dict[str, object]) -> None:
