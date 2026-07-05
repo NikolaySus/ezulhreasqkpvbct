@@ -155,6 +155,48 @@
         color: #b91c1c;
         font-weight: 700;
       }
+      .progress-panel {
+        margin-top: 14px;
+        padding: 12px;
+        border: 1px solid #d9dee7;
+        border-radius: 8px;
+        background: #f8fafc;
+      }
+      .progress-panel[hidden] {
+        display: none;
+      }
+      .progress-meta {
+        display: flex;
+        min-height: 22px;
+        justify-content: space-between;
+        gap: 12px;
+        color: #52616f;
+        font-size: 0.9rem;
+        font-weight: 700;
+      }
+      .progress-time {
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      .progress-track {
+        height: 10px;
+        margin-top: 10px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #e2e8f0;
+      }
+      .progress-fill {
+        width: 100%;
+        height: 100%;
+        border-radius: inherit;
+        background: #0f766e;
+        transform: scaleX(0);
+        transform-origin: left center;
+        transition: transform 180ms ease-out;
+      }
+      .progress-panel.error .progress-fill {
+        background: #b91c1c;
+      }
       .hint-list {
         display: grid;
         gap: 10px;
@@ -361,6 +403,16 @@
         .status.error {
           color: #fca5a5;
         }
+        .progress-panel {
+          background: #111827;
+          border-color: #374151;
+        }
+        .progress-meta {
+          color: #d1d5db;
+        }
+        .progress-track {
+          background: #374151;
+        }
         .hint-list li,
         .chip {
           border-color: #374151;
@@ -405,6 +457,15 @@
             <input id="image-input" name="image" type="file" accept="image/png,image/jpeg,image/tiff,image/webp,.tif,.tiff" required>
             <button id="submit-button" type="submit">Запустить сегментацию</button>
             <div class="status" id="status">Проверяем backend...</div>
+            <div class="progress-panel" id="progress-panel" hidden>
+              <div class="progress-meta">
+                <span id="progress-label">Подготовка обработки...</span>
+                <span class="progress-time" id="progress-time">00:00</span>
+              </div>
+              <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Прогресс сегментации">
+                <div class="progress-fill" id="progress-fill"></div>
+              </div>
+            </div>
             <ul class="hint-list" aria-label="Ожидаемый результат инференса">
               <li>На выходе ожидается цветовая маска поверх исходного изображения.</li>
               <li>Доля талька считается по синему классу; если она выше 10%, руда предварительно считается оталькованной.</li>
@@ -447,9 +508,16 @@
       const button = document.querySelector("#submit-button");
       const statusNode = document.querySelector("#status");
       const preview = document.querySelector("#preview");
+      const progressPanel = document.querySelector("#progress-panel");
+      const progressLabel = document.querySelector("#progress-label");
+      const progressTime = document.querySelector("#progress-time");
+      const progressTrack = document.querySelector(".progress-track");
+      const progressFill = document.querySelector("#progress-fill");
       const tabButtons = document.querySelectorAll(".tab-button");
       const inferenceTab = document.querySelector("#inference-tab");
       const annotationTab = document.querySelector("#annotation-tab");
+      let progressStartedAt = null;
+      let progressTimer = null;
 
       tabButtons.forEach((tabButton) => {
         tabButton.addEventListener("click", () => selectTab(tabButton.dataset.tab));
@@ -489,6 +557,7 @@
         button.disabled = true;
         statusNode.classList.remove("ready", "error");
         statusNode.textContent = "Загружаем изображение...";
+        resetProgressTracking();
         showPreview(file);
 
         try {
@@ -501,8 +570,11 @@
             throw new Error(data.detail || "Загрузка не удалась");
           }
 
+          startProgressTracking("Задача поставлена в очередь", 0);
           await pollJob(data.job_id);
         } catch (error) {
+          stopProgressTracking();
+          markProgressError();
           statusNode.classList.add("error");
           statusNode.textContent = error.message || "Сегментация не удалась";
         } finally {
@@ -537,6 +609,7 @@
             throw new Error(data.detail || "Не удалось получить статус задачи");
           }
 
+          updateProgressFromJob(data);
           statusNode.textContent = jobStatusText(jobId, data);
 
           if (data.status === "finished") {
@@ -544,10 +617,14 @@
             result.src = `${data.result_url}?t=${Date.now()}`;
             statusNode.classList.add("ready");
             statusNode.textContent = finishedStatusText(data);
+            setProgress(100, `Готово за ${formatElapsed(elapsedSeconds())}`);
+            stopProgressTracking();
             return;
           }
 
           if (data.status === "failed") {
+            markProgressError();
+            stopProgressTracking();
             throw new Error(data.error || "Задача сегментации завершилась ошибкой");
           }
         }
@@ -566,6 +643,118 @@
         }
 
         return `Задача ${jobId}: ${data.status}`;
+      }
+
+      function startProgressTracking(label, percent) {
+        progressStartedAt = Date.now();
+        progressPanel.hidden = false;
+        progressPanel.classList.remove("error");
+        setProgress(percent, label);
+        updateProgressTime();
+        clearInterval(progressTimer);
+        progressTimer = setInterval(updateProgressTime, 500);
+      }
+
+      function stopProgressTracking() {
+        updateProgressTime();
+        clearInterval(progressTimer);
+        progressTimer = null;
+      }
+
+      function resetProgressTracking() {
+        clearInterval(progressTimer);
+        progressTimer = null;
+        progressStartedAt = null;
+        progressPanel.hidden = true;
+        progressPanel.classList.remove("error");
+        setProgress(0, "Подготовка обработки...");
+        progressTime.textContent = "00:00";
+      }
+
+      function markProgressError() {
+        if (!progressPanel.hidden) {
+          progressPanel.classList.add("error");
+          progressLabel.textContent = "Обработка остановлена";
+        }
+      }
+
+      function updateProgressFromJob(data) {
+        if (progressPanel.hidden) {
+          startProgressTracking("Задача поставлена в очередь", 0);
+        }
+
+        if (data.status === "queued") {
+          setProgress(0, "Ожидание в очереди");
+          return;
+        }
+
+        if (data.status !== "started" && data.status !== "finished") {
+          return;
+        }
+
+        const progress = data.progress;
+        if (!progress || typeof progress.percent !== "number") {
+          setProgress(0, "Подготовка обработки...");
+          return;
+        }
+
+        setProgress(progress.percent, progressLabelText(progress));
+      }
+
+      function setProgress(percent, label) {
+        const bounded = Math.max(0, Math.min(100, Number(percent) || 0));
+        progressFill.style.transform = `scaleX(${bounded / 100})`;
+        progressTrack.setAttribute("aria-valuenow", String(Math.round(bounded)));
+        progressLabel.textContent = label;
+      }
+
+      function progressLabelText(progress) {
+        const percent = Math.round(progress.percent);
+        const tiles = Number.isInteger(progress.processed_tiles) && Number.isInteger(progress.total_tiles)
+          ? ` · ${progress.processed_tiles}/${progress.total_tiles} тайлов`
+          : "";
+
+        if (progress.stage === "loading_image") {
+          return "Чтение изображения";
+        }
+        if (progress.stage === "loading_model") {
+          return "Загрузка модели";
+        }
+        if (progress.stage === "segmenting") {
+          return `Обработка тайлов: ${percent}%${tiles}`;
+        }
+        if (progress.stage === "assembling") {
+          return "Сборка маски";
+        }
+        if (progress.stage === "saving") {
+          return "Сохранение результата";
+        }
+        if (progress.stage === "finished") {
+          return "Готово";
+        }
+
+        return `Обработка: ${percent}%${tiles}`;
+      }
+
+      function updateProgressTime() {
+        if (progressStartedAt === null) {
+          progressTime.textContent = "00:00";
+          return;
+        }
+        progressTime.textContent = formatElapsed(elapsedSeconds());
+      }
+
+      function elapsedSeconds() {
+        if (progressStartedAt === null) {
+          return 0;
+        }
+        return Math.max(0, Math.floor((Date.now() - progressStartedAt) / 1000));
+      }
+
+      function formatElapsed(totalSeconds) {
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
       }
 
       async function readJsonResponse(response, fallbackMessage) {

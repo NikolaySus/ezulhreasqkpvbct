@@ -117,7 +117,7 @@ async def create_segmentation_job(image: UploadFile = File(...)) -> dict[str, st
         str(upload_path),
         str(result_path),
         job_id=job_id,
-        job_timeout=300,
+        job_timeout=1800,
         result_ttl=24 * 60 * 60,
         failure_ttl=24 * 60 * 60,
     )
@@ -133,8 +133,11 @@ async def get_job(job_id: str) -> dict[str, object]:
 
     if status == "queued":
         response["queue_position"] = _queue_position(job.id)
+    elif status == "started":
+        response.update(_job_progress(job))
     elif status == "finished":
         response["result_url"] = f"/api/jobs/{job.id}/result"
+        response.update(_job_progress(job))
         response.update(_job_analysis(job))
     elif status == "failed":
         response["error"] = _format_error(job)
@@ -201,6 +204,28 @@ def _job_analysis(job: Job) -> dict[str, object]:
         analysis["classes"] = list(classes)
 
     return {"analysis": analysis} if analysis else {}
+
+
+def _job_progress(job: Job) -> dict[str, object]:
+    progress = job.meta.get("progress")
+    if not isinstance(progress, dict):
+        return {}
+
+    response: dict[str, object] = {}
+    stage = progress.get("stage")
+    if isinstance(stage, str):
+        response["stage"] = stage
+
+    for key in ("processed_tiles", "total_tiles"):
+        value = progress.get(key)
+        if isinstance(value, int):
+            response[key] = value
+
+    percent = progress.get("percent")
+    if isinstance(percent, int | float):
+        response["percent"] = float(percent)
+
+    return {"progress": response} if response else {}
 
 
 def _format_error(job: Job) -> str:

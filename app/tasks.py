@@ -1,6 +1,8 @@
 from pathlib import Path
+from time import monotonic
 
 import numpy as np
+from rq import get_current_job
 import segmentation_models_pytorch as smp
 import torch
 import torch.nn.functional as F
@@ -28,27 +30,36 @@ STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 _MODEL = None
 _DEVICE = None
+PROGRESS_SAVE_INTERVAL_SECONDS = 0.5
 
 
 def segment_image(upload_path: str, result_path: str) -> dict[str, object]:
+    progress = _ProgressReporter()
+    progress.update(stage="loading_image", percent=0.0, force=True)
+
     source = Image.open(upload_path).convert("RGB")
     image = np.asarray(source)
 
-    mask = _predict_mask(image)
+    progress.update(stage="loading_model", percent=0.0, force=True)
+    mask = _predict_mask(image, progress)
+
+    progress.update(stage="saving", percent=99.0, force=True)
     result = Path(result_path)
     result.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray(_colorize_mask(mask)).save(result, format="PNG")
 
     talc_ratio = float((mask == TALC_CLASS_INDEX).mean())
-    return {
+    output = {
         "result_path": str(result),
         "classes": CLASS_NAMES,
         "talc_ratio": talc_ratio,
         "is_talcose": talc_ratio > 0.10,
     }
+    progress.update(stage="finished", processed_tiles=progress.processed_tiles, percent=100.0, force=True)
+    return output
 
 
-def _predict_mask(image: np.ndarray) -> np.ndarray:
+def _predict_mask(image: np.ndarray, progress: "_ProgressReporter") -> np.ndarray:
     model, device = _load_model()
 
     h, w = image.shape[:2]
@@ -71,6 +82,15 @@ def _predict_mask(image: np.ndarray) -> np.ndarray:
     window = _gaussian_window(tile_size)
     accum = np.zeros((ph, pw, NUM_CLASSES), dtype=np.float32)
     weight_sum = np.zeros((ph, pw), dtype=np.float32)
+    total_tiles = len(coords)
+
+    progress.update(
+        stage="segmenting",
+        processed_tiles=0,
+        total_tiles=total_tiles,
+        percent=0.0,
+        force=True,
+    )
 
     for offset in range(0, len(coords), batch_size):
         chunk = coords[offset : offset + batch_size]
@@ -81,6 +101,15 @@ def _predict_mask(image: np.ndarray) -> np.ndarray:
             accum[y : y + tile_size, x : x + tile_size] += probs * window[..., None]
             weight_sum[y : y + tile_size, x : x + tile_size] += window
 
+        processed_tiles = min(offset + len(chunk), total_tiles)
+        progress.update(
+            stage="segmenting",
+            processed_tiles=processed_tiles,
+            total_tiles=total_tiles,
+            percent=(processed_tiles / total_tiles) * 100,
+        )
+
+    progress.update(stage="assembling", processed_tiles=total_tiles, total_tiles=total_tiles, percent=98.0, force=True)
     accum /= np.clip(weight_sum, 1e-6, None)[..., None]
     cropped = accum[pad : pad + h, pad : pad + w]
     return np.argmax(cropped, axis=-1).astype(np.uint8)
@@ -138,3 +167,43 @@ def _gaussian_window(tile_size: int, sigma_frac: float = 0.125) -> np.ndarray:
 
 def _colorize_mask(mask: np.ndarray) -> np.ndarray:
     return PALETTE[np.clip(mask, 0, len(PALETTE) - 1).astype(np.int64)]
+
+
+class _ProgressReporter:
+    def __init__(self) -> None:
+        self.job = get_current_job()
+        self.last_saved_at = 0.0
+        self.processed_tiles = 0
+        self.total_tiles = None
+
+    def update(
+        self,
+        *,
+        stage: str,
+        processed_tiles: int | None = None,
+        total_tiles: int | None = None,
+        percent: float | None = None,
+        force: bool = False,
+    ) -> None:
+        if self.job is None:
+            return
+
+        if processed_tiles is not None:
+            self.processed_tiles = processed_tiles
+        if total_tiles is not None:
+            self.total_tiles = total_tiles
+
+        now = monotonic()
+        if not force and now - self.last_saved_at < PROGRESS_SAVE_INTERVAL_SECONDS:
+            return
+
+        progress: dict[str, object] = {"stage": stage}
+        if self.total_tiles is not None:
+            progress["total_tiles"] = self.total_tiles
+            progress["processed_tiles"] = self.processed_tiles
+        if percent is not None:
+            progress["percent"] = max(0.0, min(100.0, round(float(percent), 1)))
+
+        self.job.meta["progress"] = progress
+        self.job.save_meta()
+        self.last_saved_at = now
