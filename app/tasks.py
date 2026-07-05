@@ -16,6 +16,7 @@ Image.MAX_IMAGE_PIXELS = None
 
 NUM_CLASSES = 4
 CLASS_NAMES = ("ore", "matrix", "talc", "damage")
+ORE_CLASS_INDEX = 0
 TALC_CLASS_INDEX = 2
 TILE_SIZE = 512
 TILE_STRIDE = 192
@@ -62,6 +63,7 @@ def segment_image(upload_path: str, result_path: str) -> dict[str, object]:
         _render_difficulty_heatmap(
             image,
             prediction.difficulty_map,
+            prediction.difficulty_coverage,
             prediction.tile_probabilities,
             prediction.tile_centers,
         )
@@ -93,11 +95,13 @@ class _Prediction:
         *,
         mask: np.ndarray,
         difficulty_map: np.ndarray,
+        difficulty_coverage: np.ndarray,
         tile_probabilities: list[float],
         tile_centers: list[tuple[int, int]],
     ) -> None:
         self.mask = mask
         self.difficulty_map = difficulty_map
+        self.difficulty_coverage = difficulty_coverage
         self.tile_probabilities = tile_probabilities
         self.tile_centers = tile_centers
 
@@ -138,6 +142,7 @@ def _predict(image: np.ndarray, progress: "_ProgressReporter") -> _Prediction:
     window = _gaussian_window(tile_size)
     accum = np.zeros((ph, pw, NUM_CLASSES), dtype=np.float32)
     difficulty_accum = np.zeros((ph, pw), dtype=np.float32)
+    difficulty_weight_sum = np.zeros((ph, pw), dtype=np.float32)
     weight_sum = np.zeros((ph, pw), dtype=np.float32)
     total_tiles = len(coords)
     tile_probabilities: list[float] = []
@@ -158,11 +163,14 @@ def _predict(image: np.ndarray, progress: "_ProgressReporter") -> _Prediction:
 
         for (y, x), probs, difficulty_probability in zip(chunk, probabilities, difficulty_probabilities):
             accum[y : y + tile_size, x : x + tile_size] += probs * window[..., None]
-            difficulty_accum[y : y + tile_size, x : x + tile_size] += float(difficulty_probability) * window
             weight_sum[y : y + tile_size, x : x + tile_size] += window
+            has_ore = _tile_intersects_predicted_ore(probs, y, x, pad, h, w)
+            if has_ore:
+                difficulty_accum[y : y + tile_size, x : x + tile_size] += float(difficulty_probability) * window
+                difficulty_weight_sum[y : y + tile_size, x : x + tile_size] += window
             center_x = int(round(x + tile_size / 2 - pad))
             center_y = int(round(y + tile_size / 2 - pad))
-            if 0 <= center_x < w and 0 <= center_y < h:
+            if has_ore and 0 <= center_x < w and 0 <= center_y < h:
                 tile_centers.append((center_x, center_y))
                 tile_probabilities.append(float(difficulty_probability))
 
@@ -176,12 +184,14 @@ def _predict(image: np.ndarray, progress: "_ProgressReporter") -> _Prediction:
 
     progress.update(stage="assembling", processed_tiles=total_tiles, total_tiles=total_tiles, percent=98.0, force=True)
     accum /= np.clip(weight_sum, 1e-6, None)[..., None]
-    difficulty_accum /= np.clip(weight_sum, 1e-6, None)
+    difficulty_accum /= np.clip(difficulty_weight_sum, 1e-6, None)
     cropped = accum[pad : pad + h, pad : pad + w]
     cropped_difficulty = difficulty_accum[pad : pad + h, pad : pad + w]
+    cropped_difficulty_coverage = difficulty_weight_sum[pad : pad + h, pad : pad + w] > 0
     return _Prediction(
         mask=np.argmax(cropped, axis=-1).astype(np.uint8),
         difficulty_map=np.clip(cropped_difficulty, 0.0, 1.0),
+        difficulty_coverage=cropped_difficulty_coverage,
         tile_probabilities=tile_probabilities,
         tile_centers=tile_centers,
     )
@@ -249,6 +259,30 @@ def _preprocess_batch(batch: np.ndarray) -> torch.Tensor:
     return torch.from_numpy(tensor[:, None, :, :]).contiguous()
 
 
+def _tile_intersects_predicted_ore(
+    probabilities: np.ndarray,
+    y: int,
+    x: int,
+    pad: int,
+    image_height: int,
+    image_width: int,
+) -> bool:
+    tile_height, tile_width = probabilities.shape[:2]
+    image_y0 = max(y - pad, 0)
+    image_y1 = min(y + tile_height - pad, image_height)
+    image_x0 = max(x - pad, 0)
+    image_x1 = min(x + tile_width - pad, image_width)
+    if image_y0 >= image_y1 or image_x0 >= image_x1:
+        return False
+
+    tile_y0 = image_y0 + pad - y
+    tile_y1 = image_y1 + pad - y
+    tile_x0 = image_x0 + pad - x
+    tile_x1 = image_x1 + pad - x
+    predicted_classes = np.argmax(probabilities[tile_y0:tile_y1, tile_x0:tile_x1], axis=-1)
+    return bool(np.any(predicted_classes == ORE_CLASS_INDEX))
+
+
 def _to_normalized_gray_image(image: np.ndarray) -> np.ndarray:
     lab = cv2.cvtColor(image, cv2.COLOR_RGB2LAB)
     lightness, a_channel, b_channel = cv2.split(lab)
@@ -275,11 +309,14 @@ def _colorize_mask(mask: np.ndarray) -> np.ndarray:
 def _render_difficulty_heatmap(
     image: np.ndarray,
     difficulty_map: np.ndarray,
+    difficulty_coverage: np.ndarray,
     tile_probabilities: list[float],
     tile_centers: list[tuple[int, int]],
 ) -> np.ndarray:
     heat_colors = _difficulty_colormap(difficulty_map)
-    overlay = (image.astype(np.float32) * 0.45 + heat_colors.astype(np.float32) * 0.55).astype(np.uint8)
+    blended = (image.astype(np.float32) * 0.45 + heat_colors.astype(np.float32) * 0.55).astype(np.uint8)
+    overlay = image.copy()
+    overlay[difficulty_coverage] = blended[difficulty_coverage]
 
     if len(tile_probabilities) <= MAX_LABELED_HEATMAP_TILES:
         canvas = Image.fromarray(overlay)
