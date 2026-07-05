@@ -303,6 +303,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--classification-epochs", type=int, default=8)
     parser.add_argument("--segmentation-patience", type=int, default=12)
     parser.add_argument("--segmentation-min-delta", type=float, default=0.001)
+    parser.add_argument("--save-epoch-checkpoints", action="store_true")
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--patches-per-image", type=int, default=TRAIN_PATCHES_PER_IMAGE)
     parser.add_argument("--eval-max-patches-per-image", type=int, default=32)
@@ -447,7 +448,8 @@ def train_segmentation_stage(
             **{f"val_{k}": v for k, v in val_metrics.items()},
         }
         history.append(row)
-        save_checkpoint(checkpoint_dir / f"segmentation_epoch_{epoch:03d}.pth", model, optimizer, epoch, history, args)
+        if args.save_epoch_checkpoints:
+            save_checkpoint(checkpoint_dir / f"segmentation_epoch_{epoch:03d}.pth", model, optimizer, epoch, history, args)
         save_checkpoint(last_checkpoint_path, model, optimizer, epoch, history, args)
         if val_metrics["mean_iou"] >= best_miou + args.segmentation_min_delta:
             best_miou = val_metrics["mean_iou"]
@@ -577,7 +579,8 @@ def train_classification_stage(
             **{f"val_{k}": v for k, v in val_metrics.items()},
         }
         history.append(row)
-        save_checkpoint(checkpoint_dir / f"classification_epoch_{epoch:03d}.pth", model, optimizer, epoch, history, args)
+        if args.save_epoch_checkpoints:
+            save_checkpoint(checkpoint_dir / f"classification_epoch_{epoch:03d}.pth", model, optimizer, epoch, history, args)
         if val_metrics["roc_auc"] >= best_auc:
             best_auc = val_metrics["roc_auc"]
             save_checkpoint(checkpoint_dir / "recommended.pth", model, optimizer, epoch, history, args)
