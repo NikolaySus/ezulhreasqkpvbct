@@ -428,7 +428,8 @@ def train_segmentation_stage(
     epochs_without_improvement = 0
     stopped_reason = "max_epochs"
     if completed_epochs > 0:
-        save_checkpoint(best_checkpoint_path, model, optimizer, completed_epochs, history, args)
+        if not best_checkpoint_path.exists():
+            save_checkpoint(best_checkpoint_path, model, optimizer, completed_epochs, history, args)
         save_checkpoint(last_checkpoint_path, model, optimizer, completed_epochs, history, args)
     if completed_epochs >= args.segmentation_epochs:
         print(
