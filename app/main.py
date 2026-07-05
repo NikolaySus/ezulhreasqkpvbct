@@ -25,7 +25,21 @@ from app.settings import (
 )
 from app.tasks import segment_image
 
-ALLOWED_CONTENT_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+ALLOWED_CONTENT_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/tif": ".tif",
+    "image/tiff": ".tiff",
+    "image/webp": ".webp",
+}
+ALLOWED_FILENAME_EXTENSIONS = {
+    ".jpeg": ".jpg",
+    ".jpg": ".jpg",
+    ".png": ".png",
+    ".tif": ".tif",
+    ".tiff": ".tiff",
+    ".webp": ".webp",
+}
 
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -79,8 +93,10 @@ async def annotation_status() -> dict[str, object]:
 @app.post("/api/segment", status_code=202)
 async def create_segmentation_job(image: UploadFile = File(...)) -> dict[str, str]:
     extension = ALLOWED_CONTENT_TYPES.get(image.content_type or "")
+    if extension is None and image.filename:
+        extension = ALLOWED_FILENAME_EXTENSIONS.get(Path(image.filename).suffix.lower())
     if extension is None:
-        raise HTTPException(status_code=400, detail="Only JPEG, PNG and WebP images are supported")
+        raise HTTPException(status_code=400, detail="Only JPEG, PNG, TIFF and WebP images are supported")
 
     job_id = uuid4().hex
     upload_path = UPLOADS_DIR / f"{job_id}{extension}"

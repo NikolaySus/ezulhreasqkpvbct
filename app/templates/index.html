@@ -363,7 +363,7 @@
               сверхкрупные панорамы будут обрабатываться тайлами на GPU и собираться обратно в единую маску.
             </p>
             <label for="image-input">Изображение шлифа</label>
-            <input id="image-input" name="image" type="file" accept="image/png,image/jpeg,image/webp" required>
+            <input id="image-input" name="image" type="file" accept="image/png,image/jpeg,image/tiff,image/webp,.tif,.tiff" required>
             <button id="submit-button" type="submit">Запустить сегментацию</button>
             <div class="status" id="status">Проверяем backend...</div>
             <ul class="hint-list" aria-label="Ожидаемый результат инференса">
@@ -384,7 +384,7 @@
             <div class="empty">
               <div class="empty-content">
                 <div class="empty-title">Загрузите микроснимок шлифа</div>
-                <p>Подойдут PNG, JPEG или WebP. Текущий backend ограничивает размер демо-загрузки, будущий inference рассчитан на очень большие панорамные снимки.</p>
+                <p>Подойдут TIFF, PNG, JPEG или WebP. Текущий backend ограничивает размер демо-загрузки, будущий inference рассчитан на очень большие панорамные снимки.</p>
               </div>
             </div>
           </div>
