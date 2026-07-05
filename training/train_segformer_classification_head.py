@@ -54,8 +54,8 @@ SCALE_RANGE = (0.85, 1.15)
 TRAIN_MIN_EXTRACT = int(math.ceil(PATCH_SIZE * math.sqrt(2.0) / SCALE_RANGE[0]) + 4)
 SEGMENTATION_COLORS = np.array(
     [
-        [255, 255, 0],
         [255, 0, 0],
+        [255, 255, 0],
         [0, 80, 255],
         [128, 0, 64],
     ],

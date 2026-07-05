@@ -1,6 +1,7 @@
 from pathlib import Path
 from time import monotonic
 
+import cv2
 import numpy as np
 from rq import get_current_job
 import segmentation_models_pytorch as smp
@@ -16,6 +17,12 @@ Image.MAX_IMAGE_PIXELS = None
 NUM_CLASSES = 4
 CLASS_NAMES = ("ore", "matrix", "talc", "damage")
 TALC_CLASS_INDEX = 2
+TILE_SIZE = 512
+TILE_STRIDE = 192
+BATCH_SIZE_CUDA = 8
+BATCH_SIZE_CPU = 1
+GRAY_MEAN = 0.449
+GRAY_STD = 0.226
 
 PALETTE = np.array(
     [
@@ -26,8 +33,6 @@ PALETTE = np.array(
     ],
     dtype=np.uint8,
 )
-MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 _MODEL = None
 _CLASSIFICATION_HEAD = None
@@ -102,7 +107,7 @@ class _ClassificationHead(nn.Module):
         super().__init__()
         self.pool = nn.AdaptiveAvgPool2d(1)
         self.dropout = nn.Dropout(0.2)
-        self.linear = nn.Linear(2048, 1)
+        self.linear = nn.Linear(512, 1)
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         pooled = self.pool(features).flatten(1)
@@ -113,11 +118,12 @@ def _predict(image: np.ndarray, progress: "_ProgressReporter") -> _Prediction:
     model, classification_head, device = _load_model()
 
     h, w = image.shape[:2]
-    tile_size = 256
-    stride = tile_size // 2
+    tile_size = TILE_SIZE
+    stride = TILE_STRIDE
     pad = tile_size // 2
 
-    padded = np.pad(image, ((pad, pad), (pad, pad), (0, 0)), mode="reflect")
+    gray = _to_normalized_gray_image(image)
+    padded = np.pad(gray, ((pad, pad), (pad, pad)), mode="reflect")
     ph, pw = padded.shape[:2]
 
     ys = list(range(0, ph - tile_size + 1, stride))
@@ -128,7 +134,7 @@ def _predict(image: np.ndarray, progress: "_ProgressReporter") -> _Prediction:
         xs.append(pw - tile_size)
 
     coords = [(y, x) for y in ys for x in xs]
-    batch_size = 32 if device.type == "cuda" else 4
+    batch_size = BATCH_SIZE_CUDA if device.type == "cuda" else BATCH_SIZE_CPU
     window = _gaussian_window(tile_size)
     accum = np.zeros((ph, pw, NUM_CLASSES), dtype=np.float32)
     difficulty_accum = np.zeros((ph, pw), dtype=np.float32)
@@ -188,14 +194,14 @@ def _load_model():
         if not INFERENCE_MODEL_PATH.exists():
             raise FileNotFoundError(
                 f"Inference checkpoint not found: {INFERENCE_MODEL_PATH}. "
-                "Place recommended.pth under model-artifacts/ml-days-2/classification/."
+                "Place recommended.pth under model-artifacts/ml-days-2/segformer-classification/."
             )
 
         _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model = smp.DeepLabV3Plus(
-            encoder_name="resnet50",
+        model = smp.Segformer(
+            encoder_name="mit_b2",
             encoder_weights=None,
-            in_channels=3,
+            in_channels=1,
             classes=NUM_CLASSES,
         )
         classification_head = _ClassificationHead()
@@ -217,7 +223,7 @@ def _load_model():
 
 @torch.inference_mode()
 def _run_batch(
-    model: smp.DeepLabV3Plus,
+    model: nn.Module,
     classification_head: _ClassificationHead,
     device: torch.device,
     batch: np.ndarray,
@@ -239,8 +245,20 @@ def _run_batch(
 
 def _preprocess_batch(batch: np.ndarray) -> torch.Tensor:
     tensor = batch.astype(np.float32) / 255.0
-    tensor = (tensor - MEAN) / STD
-    return torch.from_numpy(tensor).permute(0, 3, 1, 2).contiguous()
+    tensor = (tensor - GRAY_MEAN) / GRAY_STD
+    return torch.from_numpy(tensor[:, None, :, :]).contiguous()
+
+
+def _to_normalized_gray_image(image: np.ndarray) -> np.ndarray:
+    lab = cv2.cvtColor(image, cv2.COLOR_RGB2LAB)
+    lightness, a_channel, b_channel = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    lightness = clahe.apply(lightness)
+    low, high = np.percentile(lightness, (1, 99))
+    if high > low:
+        lightness = np.clip((lightness.astype(np.float32) - low) * 255.0 / (high - low), 0, 255).astype(np.uint8)
+    normalized = cv2.cvtColor(cv2.merge((lightness, a_channel, b_channel)), cv2.COLOR_LAB2RGB)
+    return cv2.cvtColor(normalized, cv2.COLOR_RGB2GRAY)
 
 
 def _gaussian_window(tile_size: int, sigma_frac: float = 0.125) -> np.ndarray:

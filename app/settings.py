@@ -9,7 +9,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 QUEUE_NAME = os.getenv("QUEUE_NAME", "segmentation")
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(2 * 1024 * 1024 * 1024)))
 INFERENCE_MODEL_PATH = Path(
-    os.getenv("INFERENCE_MODEL_PATH", "/model-artifacts/ml-days-2/classification/recommended.pth")
+    os.getenv("INFERENCE_MODEL_PATH", "/model-artifacts/ml-days-2/segformer-classification/recommended.pth")
 ).resolve()
 SEGMENTATION_MODEL_PATH = INFERENCE_MODEL_PATH
 

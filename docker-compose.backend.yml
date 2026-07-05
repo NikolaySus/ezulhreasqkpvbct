@@ -43,7 +43,7 @@ services:
       DATA_DIR: /data
       TORCH_HOME: /models/torch
       MPLCONFIGDIR: /app/training-artifacts/.mpl-cache
-      INFERENCE_MODEL_PATH: /model-artifacts/ml-days-2/classification/recommended.pth
+      INFERENCE_MODEL_PATH: /model-artifacts/ml-days-2/segformer-classification/recommended.pth
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
     gpus: all
