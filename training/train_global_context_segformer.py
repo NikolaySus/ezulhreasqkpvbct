@@ -300,9 +300,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-name", type=str, default=None)
     parser.add_argument("--resume-checkpoint", type=Path, default=None)
     parser.add_argument("--segmentation-epochs", type=int, default=60)
-    parser.add_argument("--classification-epochs", type=int, default=8)
+    parser.add_argument("--classification-epochs", type=int, default=60)
     parser.add_argument("--segmentation-patience", type=int, default=12)
     parser.add_argument("--segmentation-min-delta", type=float, default=0.001)
+    parser.add_argument("--classification-patience", type=int, default=12)
+    parser.add_argument("--classification-min-delta", type=float, default=0.001)
     parser.add_argument("--save-epoch-checkpoints", action="store_true")
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--patches-per-image", type=int, default=TRAIN_PATCHES_PER_IMAGE)
@@ -528,6 +530,8 @@ def train_classification_stage(
     configure_for_classification_stage(model)
     optimizer = make_optimizer(model, args, include_classification_head=True)
     criterion = nn.BCEWithLogitsLoss(pos_weight=class_pos_weight(split_records["train"]).to(device))
+    recommended_checkpoint_path = checkpoint_dir / "recommended.pth"
+    last_checkpoint_path = checkpoint_dir / "classification_last.pth"
     train_loader = DataLoader(
         ClassificationGlobalPatchDataset(
             split_records["train"],
@@ -565,7 +569,11 @@ def train_classification_stage(
     )
     previous_rows = [row for row in history if row["stage"] == "classification"]
     completed_epochs = max((int(row["epoch"]) for row in previous_rows), default=0)
-    best_auc = max((float(row.get("val_roc_auc", -1.0)) for row in previous_rows), default=-1.0)
+    best_row = max(previous_rows, key=classification_score, default=None)
+    best_score = classification_score(best_row) if best_row is not None else (-1.0, -1.0)
+    best_epoch = int(best_row["epoch"]) if best_row is not None else 0
+    epochs_without_improvement = 0
+    stopped_reason = "max_epochs"
     if completed_epochs >= args.classification_epochs:
         print(
             f"Classification already has {completed_epochs} epochs; "
@@ -584,18 +592,71 @@ def train_classification_stage(
         history.append(row)
         if args.save_epoch_checkpoints:
             save_checkpoint(checkpoint_dir / f"classification_epoch_{epoch:03d}.pth", model, optimizer, epoch, history, args)
-        if val_metrics["roc_auc"] >= best_auc:
-            best_auc = val_metrics["roc_auc"]
-            save_checkpoint(checkpoint_dir / "recommended.pth", model, optimizer, epoch, history, args)
+        save_checkpoint(last_checkpoint_path, model, optimizer, epoch, history, args)
+        current_score = (float(val_metrics["f1"]), float(val_metrics["roc_auc"]))
+        improved = current_score[0] >= best_score[0] + args.classification_min_delta
+        if not improved and abs(current_score[0] - best_score[0]) < args.classification_min_delta:
+            improved = current_score[1] > best_score[1]
+        if improved:
+            best_score = current_score
+            best_epoch = epoch
+            epochs_without_improvement = 0
+            save_checkpoint(recommended_checkpoint_path, model, optimizer, epoch, history, args)
+        else:
+            epochs_without_improvement += 1
         write_history(checkpoint_dir.parent / "history.csv", history)
         plot_combined_history(history, plots_dir)
+        write_training_summary(
+            checkpoint_dir.parent,
+            {
+                "classification": {
+                    "best_epoch": best_epoch,
+                    "best_val_f1": best_score[0],
+                    "best_val_roc_auc": best_score[1],
+                    "completed_epochs": epoch,
+                    "max_epochs": args.classification_epochs,
+                    "patience": args.classification_patience,
+                    "min_delta": args.classification_min_delta,
+                    "epochs_without_improvement": epochs_without_improvement,
+                    "stopped_reason": stopped_reason,
+                    "best_checkpoint": str(recommended_checkpoint_path),
+                    "last_checkpoint": str(last_checkpoint_path),
+                }
+            },
+        )
         print(
             f"Cls epoch {epoch:03d}/{args.classification_epochs}: "
             f"train_loss={train_loss:.4f} val_loss={val_loss:.4f} "
-            f"val_auc={val_metrics['roc_auc']:.4f} val_f1={val_metrics['f1']:.4f}"
+            f"val_auc={val_metrics['roc_auc']:.4f} val_f1={val_metrics['f1']:.4f} "
+            f"best_f1={best_score[0]:.4f} no_improve={epochs_without_improvement}/{args.classification_patience}"
         )
+        if epochs_without_improvement >= args.classification_patience:
+            stopped_reason = "early_stopping"
+            write_training_summary(
+                checkpoint_dir.parent,
+                {
+                    "classification": {
+                        "best_epoch": best_epoch,
+                        "best_val_f1": best_score[0],
+                        "best_val_roc_auc": best_score[1],
+                        "completed_epochs": epoch,
+                        "max_epochs": args.classification_epochs,
+                        "patience": args.classification_patience,
+                        "min_delta": args.classification_min_delta,
+                        "epochs_without_improvement": epochs_without_improvement,
+                        "stopped_reason": stopped_reason,
+                        "best_checkpoint": str(recommended_checkpoint_path),
+                        "last_checkpoint": str(last_checkpoint_path),
+                    }
+                },
+            )
+            print(
+                f"Classification early stopping at epoch {epoch}; "
+                f"best epoch {best_epoch}, best val_f1={best_score[0]:.4f}, val_auc={best_score[1]:.4f}"
+            )
+            break
 
-    load_checkpoint(model, checkpoint_dir / "recommended.pth", device)
+    load_checkpoint(model, recommended_checkpoint_path, device)
     test_loss, test_metrics, payload = evaluate_classification(
         model,
         test_loader,
@@ -603,14 +664,23 @@ def train_classification_stage(
         split_records["test"],
         device,
     )
-    report = {"test_loss": test_loss, "test_metrics": test_metrics, "checkpoint": str(checkpoint_dir / "recommended.pth")}
+    report = {"test_loss": test_loss, "test_metrics": test_metrics, "checkpoint": str(recommended_checkpoint_path)}
     (checkpoint_dir.parent / "test_metrics.json").write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     write_training_summary(
         checkpoint_dir.parent,
         {
             "classification": {
-                "completed_epochs": args.classification_epochs,
-                "best_checkpoint": str(checkpoint_dir / "recommended.pth"),
+                "best_epoch": best_epoch,
+                "best_val_f1": best_score[0],
+                "best_val_roc_auc": best_score[1],
+                "completed_epochs": max((int(row["epoch"]) for row in history if row["stage"] == "classification"), default=0),
+                "max_epochs": args.classification_epochs,
+                "patience": args.classification_patience,
+                "min_delta": args.classification_min_delta,
+                "epochs_without_improvement": epochs_without_improvement,
+                "stopped_reason": stopped_reason,
+                "best_checkpoint": str(recommended_checkpoint_path),
+                "last_checkpoint": str(last_checkpoint_path),
                 "test_metrics": test_metrics,
             }
         },
@@ -1100,6 +1170,12 @@ def binary_metrics(y_true: np.ndarray, predictions: np.ndarray, probabilities: n
         metrics["roc_auc"] = 0.0
         metrics["pr_auc"] = 0.0
     return metrics
+
+
+def classification_score(row: dict[str, object] | None) -> tuple[float, float]:
+    if row is None:
+        return (-1.0, -1.0)
+    return (float(row.get("val_f1") or 0.0), float(row.get("val_roc_auc") or 0.0))
 
 
 def write_history(path: Path, history: list[dict[str, float | int | str]]) -> None:
