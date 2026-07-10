@@ -8,8 +8,9 @@ import torch
 import torch.nn.functional as F
 from PIL import Image, ImageDraw
 
-from app.settings import INFERENCE_MODEL_PATH
+from app.settings import INFERENCE_MODEL_PATH, ORE_TILE_RATIO_EXCLUSION_FACTOR
 from training.train_global_context_segformer import GlobalContextSegformer, global_roi_for_patch
+from training.train_shared_context_segformer import SharedContextSegformer
 
 Image.MAX_IMAGE_PIXELS = None
 
@@ -36,6 +37,7 @@ PALETTE = np.array(
 
 _MODEL = None
 _DEVICE = None
+_MODEL_KIND = None
 PROGRESS_SAVE_INTERVAL_SECONDS = 0.5
 TALCOSE_THRESHOLD = 0.10
 DIFFICULT_THRESHOLD = 0.50
@@ -104,6 +106,23 @@ class _Prediction:
         self.tile_centers = tile_centers
 
 
+class _TileDifficultyRecord:
+    def __init__(
+        self,
+        *,
+        y: int,
+        x: int,
+        ore_ratio: float,
+        difficulty_probability: float,
+        center: tuple[int, int] | None,
+    ) -> None:
+        self.y = y
+        self.x = x
+        self.ore_ratio = ore_ratio
+        self.difficulty_probability = difficulty_probability
+        self.center = center
+
+
 def _predict(image: np.ndarray, progress: "_ProgressReporter") -> _Prediction:
     model, device = _load_model()
 
@@ -134,6 +153,7 @@ def _predict(image: np.ndarray, progress: "_ProgressReporter") -> _Prediction:
     total_tiles = len(coords)
     tile_probabilities: list[float] = []
     tile_centers: list[tuple[int, int]] = []
+    tile_records: list[_TileDifficultyRecord] = []
 
     progress.update(
         stage="segmenting",
@@ -165,15 +185,19 @@ def _predict(image: np.ndarray, progress: "_ProgressReporter") -> _Prediction:
         for (y, x), probs, difficulty_probability in zip(chunk, probabilities, difficulty_probabilities):
             accum[y : y + tile_size, x : x + tile_size] += probs * window[..., None]
             weight_sum[y : y + tile_size, x : x + tile_size] += window
-            has_ore = _tile_intersects_predicted_ore(probs, y, x, pad, h, w)
-            if has_ore:
-                difficulty_accum[y : y + tile_size, x : x + tile_size] += float(difficulty_probability) * window
-                difficulty_weight_sum[y : y + tile_size, x : x + tile_size] += window
+            ore_ratio = _tile_predicted_ore_ratio(probs, y, x, pad, h, w)
             center_x = int(round(x + tile_size / 2 - pad))
             center_y = int(round(y + tile_size / 2 - pad))
-            if has_ore and 0 <= center_x < w and 0 <= center_y < h:
-                tile_centers.append((center_x, center_y))
-                tile_probabilities.append(float(difficulty_probability))
+            center = (center_x, center_y) if 0 <= center_x < w and 0 <= center_y < h else None
+            tile_records.append(
+                _TileDifficultyRecord(
+                    y=y,
+                    x=x,
+                    ore_ratio=ore_ratio,
+                    difficulty_probability=float(difficulty_probability),
+                    center=center,
+                )
+            )
 
         processed_tiles = min(offset + len(chunk), total_tiles)
         progress.update(
@@ -185,12 +209,28 @@ def _predict(image: np.ndarray, progress: "_ProgressReporter") -> _Prediction:
 
     progress.update(stage="assembling", processed_tiles=total_tiles, total_tiles=total_tiles, percent=98.0, force=True)
     accum /= np.clip(weight_sum, 1e-6, None)[..., None]
-    difficulty_accum /= np.clip(difficulty_weight_sum, 1e-6, None)
     cropped = accum[pad : pad + h, pad : pad + w]
+    mask = np.argmax(cropped, axis=-1).astype(np.uint8)
+    global_ore_ratio = float((mask == ORE_CLASS_INDEX).mean())
+    min_tile_ore_ratio = (
+        global_ore_ratio / ORE_TILE_RATIO_EXCLUSION_FACTOR
+        if global_ore_ratio > 0.0 and ORE_TILE_RATIO_EXCLUSION_FACTOR > 0.0
+        else float("inf")
+    )
+    for record in tile_records:
+        if record.ore_ratio < min_tile_ore_ratio:
+            continue
+        difficulty_accum[record.y : record.y + tile_size, record.x : record.x + tile_size] += record.difficulty_probability * window
+        difficulty_weight_sum[record.y : record.y + tile_size, record.x : record.x + tile_size] += window
+        if record.center is not None:
+            tile_centers.append(record.center)
+            tile_probabilities.append(record.difficulty_probability)
+
+    difficulty_accum /= np.clip(difficulty_weight_sum, 1e-6, None)
     cropped_difficulty = difficulty_accum[pad : pad + h, pad : pad + w]
     cropped_difficulty_coverage = difficulty_weight_sum[pad : pad + h, pad : pad + w] > 0
     return _Prediction(
-        mask=np.argmax(cropped, axis=-1).astype(np.uint8),
+        mask=mask,
         difficulty_map=np.clip(cropped_difficulty, 0.0, 1.0),
         difficulty_coverage=cropped_difficulty_coverage,
         tile_probabilities=tile_probabilities,
@@ -199,31 +239,52 @@ def _predict(image: np.ndarray, progress: "_ProgressReporter") -> _Prediction:
 
 
 def _load_model():
-    global _MODEL, _DEVICE
+    global _MODEL, _DEVICE, _MODEL_KIND
 
     if _MODEL is None:
         if not INFERENCE_MODEL_PATH.exists():
             raise FileNotFoundError(
                 f"Inference checkpoint not found: {INFERENCE_MODEL_PATH}. "
-                "Place recommended.pth under model-artifacts/ml-days-2/global-context-segformer/."
+                "Place recommended.pth under model-artifacts/ml-days-2/."
             )
 
         _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model = GlobalContextSegformer()
         checkpoint = torch.load(INFERENCE_MODEL_PATH, map_location=_DEVICE, weights_only=False)
-        required_keys = {
-            "local_model_state_dict",
-            "global_model_state_dict",
-            "context_adapter_state_dict",
-            "classification_head_state_dict",
-        }
-        missing_keys = required_keys.difference(checkpoint)
-        if missing_keys:
-            raise KeyError(f"Inference checkpoint is missing keys: {sorted(missing_keys)}")
-        model.local_model.load_state_dict(checkpoint["local_model_state_dict"])
-        model.global_model.load_state_dict(checkpoint["global_model_state_dict"])
-        model.context_adapter.load_state_dict(checkpoint["context_adapter_state_dict"])
-        model.classification_head.load_state_dict(checkpoint["classification_head_state_dict"])
+        model_type = str(checkpoint.get("model_type", ""))
+        if model_type == "shared_context_segformer_mit_b2":
+            model = SharedContextSegformer()
+            required_keys = {
+                "encoder_state_dict",
+                "decoder_state_dict",
+                "segmentation_head_state_dict",
+                "context_adapter_state_dict",
+                "classification_head_state_dict",
+            }
+            missing_keys = required_keys.difference(checkpoint)
+            if missing_keys:
+                raise KeyError(f"Shared-context inference checkpoint is missing keys: {sorted(missing_keys)}")
+            model.encoder.load_state_dict(checkpoint["encoder_state_dict"])
+            model.decoder.load_state_dict(checkpoint["decoder_state_dict"])
+            model.segmentation_head.load_state_dict(checkpoint["segmentation_head_state_dict"])
+            model.context_adapter.load_state_dict(checkpoint["context_adapter_state_dict"])
+            model.classification_head.load_state_dict(checkpoint["classification_head_state_dict"])
+            _MODEL_KIND = "shared"
+        else:
+            model = GlobalContextSegformer()
+            required_keys = {
+                "local_model_state_dict",
+                "global_model_state_dict",
+                "context_adapter_state_dict",
+                "classification_head_state_dict",
+            }
+            missing_keys = required_keys.difference(checkpoint)
+            if missing_keys:
+                raise KeyError(f"Global-context inference checkpoint is missing keys: {sorted(missing_keys)}")
+            model.local_model.load_state_dict(checkpoint["local_model_state_dict"])
+            model.global_model.load_state_dict(checkpoint["global_model_state_dict"])
+            model.context_adapter.load_state_dict(checkpoint["context_adapter_state_dict"])
+            model.classification_head.load_state_dict(checkpoint["classification_head_state_dict"])
+            _MODEL_KIND = "global"
         model.to(_DEVICE).eval()
         if _DEVICE.type == "cuda":
             model.half()
@@ -233,16 +294,18 @@ def _load_model():
 
 
 @torch.inference_mode()
-def _global_feature(model: GlobalContextSegformer, device: torch.device, image: np.ndarray) -> torch.Tensor:
+def _global_feature(model: GlobalContextSegformer | SharedContextSegformer, device: torch.device, image: np.ndarray) -> torch.Tensor:
     tensor = _preprocess_global_image(image).to(device)
     if device.type == "cuda":
         tensor = tensor.half()
+    if _MODEL_KIND == "shared":
+        return model.encode(tensor)[-1]
     return model.global_model.encoder(tensor)[-1]
 
 
 @torch.inference_mode()
 def _run_batch(
-    model: GlobalContextSegformer,
+    model: GlobalContextSegformer | SharedContextSegformer,
     device: torch.device,
     batch: np.ndarray,
     global_feature: torch.Tensor,
@@ -252,11 +315,18 @@ def _run_batch(
     roi_tensor = torch.from_numpy(rois).to(device)
     if device.type == "cuda":
         tensor = tensor.half()
-    local_features = list(model.local_model.encoder(tensor))
+    if _MODEL_KIND == "shared":
+        local_features = model.encode(tensor)
+    else:
+        local_features = list(model.local_model.encoder(tensor))
     expanded_global_feature = global_feature.expand(tensor.shape[0], -1, -1, -1)
     local_features[-1] = model.context_adapter(local_features[-1], expanded_global_feature, roi_tensor)
-    decoder_output = model.local_model.decoder(local_features)
-    segmentation_logits = model.local_model.segmentation_head(decoder_output)
+    if _MODEL_KIND == "shared":
+        decoder_output = model.decoder(local_features)
+        segmentation_logits = model.segmentation_head(decoder_output)
+    else:
+        decoder_output = model.local_model.decoder(local_features)
+        segmentation_logits = model.local_model.segmentation_head(decoder_output)
     classification_logits = model.classification_head(local_features[-1])
     segmentation_probabilities = F.softmax(segmentation_logits.float(), dim=1)
     difficulty_probabilities = torch.sigmoid(classification_logits.float())
@@ -287,28 +357,28 @@ def _preprocess_global_image(image: np.ndarray) -> torch.Tensor:
     return _preprocess_batch(canvas[None, ...])
 
 
-def _tile_intersects_predicted_ore(
+def _tile_predicted_ore_ratio(
     probabilities: np.ndarray,
     y: int,
     x: int,
     pad: int,
     image_height: int,
     image_width: int,
-) -> bool:
+) -> float:
     tile_height, tile_width = probabilities.shape[:2]
     image_y0 = max(y - pad, 0)
     image_y1 = min(y + tile_height - pad, image_height)
     image_x0 = max(x - pad, 0)
     image_x1 = min(x + tile_width - pad, image_width)
     if image_y0 >= image_y1 or image_x0 >= image_x1:
-        return False
+        return 0.0
 
     tile_y0 = image_y0 + pad - y
     tile_y1 = image_y1 + pad - y
     tile_x0 = image_x0 + pad - x
     tile_x1 = image_x1 + pad - x
     predicted_classes = np.argmax(probabilities[tile_y0:tile_y1, tile_x0:tile_x1], axis=-1)
-    return bool(np.any(predicted_classes == ORE_CLASS_INDEX))
+    return float(np.mean(predicted_classes == ORE_CLASS_INDEX))
 
 
 def _to_normalized_gray_image(image: np.ndarray) -> np.ndarray:

@@ -20,6 +20,7 @@ services:
       MAX_UPLOAD_BYTES: 2147483648
       ANNOTATION_DATA_DIR: /annotation-data
       ANNOTATION_EDITING_ENABLED: "false"
+      ORE_TILE_RATIO_EXCLUSION_FACTOR: 10
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
     gpus: all
@@ -43,7 +44,8 @@ services:
       DATA_DIR: /data
       TORCH_HOME: /models/torch
       MPLCONFIGDIR: /app/training-artifacts/.mpl-cache
-      INFERENCE_MODEL_PATH: /model-artifacts/ml-days-2/global-context-segformer/recommended.pth
+      INFERENCE_MODEL_PATH: /model-artifacts/ml-days-2/shared-context-segformer/classification_loss_v3.pth
+      ORE_TILE_RATIO_EXCLUSION_FACTOR: 10
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
     gpus: all

@@ -86,8 +86,34 @@
         color: #0f766e;
         box-shadow: inset 0 -3px 0 #0f766e;
       }
+      .tab-button:disabled {
+        cursor: not-allowed;
+        opacity: 0.45;
+      }
       .tab-panel[hidden] {
         display: none;
+      }
+      .backend-unavailable {
+        display: grid;
+        min-height: 360px;
+        place-items: center;
+        padding: 32px;
+        border: 1px solid #fecaca;
+        border-radius: 8px;
+        background: #fff7f7;
+        text-align: center;
+      }
+      .backend-unavailable[hidden] {
+        display: none;
+      }
+      .backend-unavailable h2 {
+        margin: 0 0 10px;
+        color: #991b1b;
+        font-size: 1.45rem;
+      }
+      .backend-unavailable p {
+        max-width: 640px;
+        color: #7f1d1d;
       }
       .workspace {
         display: grid;
@@ -440,6 +466,16 @@
           background: #1f2937;
           border-color: #374151;
         }
+        .backend-unavailable {
+          background: #1f1111;
+          border-color: #7f1d1d;
+        }
+        .backend-unavailable h2 {
+          color: #fca5a5;
+        }
+        .backend-unavailable p {
+          color: #fecaca;
+        }
         img,
         .badge,
         .chip,
@@ -507,6 +543,13 @@
         <button class="tab-button" type="button" data-tab="inference" aria-selected="true">Инференс</button>
         <button class="tab-button" type="button" data-tab="annotation" aria-selected="false">Доразметка</button>
       </nav>
+
+      <section class="backend-unavailable" id="backend-unavailable" hidden>
+        <div>
+          <h2>Бэкенд сервер недоступен</h2>
+          <p>Инференс и доразметка временно отключены, потому что страница не может подключиться к API обработки.</p>
+        </div>
+      </section>
 
       <section class="tab-panel" id="inference-tab">
         <section class="workspace">
@@ -587,6 +630,8 @@
       const tabButtons = document.querySelectorAll(".tab-button");
       const inferenceTab = document.querySelector("#inference-tab");
       const annotationTab = document.querySelector("#annotation-tab");
+      const backendUnavailable = document.querySelector("#backend-unavailable");
+      let backendAvailable = false;
       let progressStartedAt = null;
       let progressTimer = null;
 
@@ -595,6 +640,10 @@
       });
 
       function selectTab(tab) {
+        if (!backendAvailable) {
+          return;
+        }
+
         tabButtons.forEach((tabButton) => {
           tabButton.setAttribute("aria-selected", String(tabButton.dataset.tab === tab));
         });
@@ -607,19 +656,25 @@
       async function checkBackend() {
         try {
           const response = await fetch("/api/health", { cache: "no-store" });
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
           const data = await response.json();
+          setBackendAvailable(true);
           statusNode.classList.remove("error");
           statusNode.classList.add("ready");
           statusNode.textContent = `Backend готов: ${data.status}, очередь: ${data.redis}, CUDA: ${data.cuda_available ? "доступна" : "недоступна"}`;
         } catch (error) {
-          statusNode.classList.remove("ready");
-          statusNode.classList.add("error");
-          statusNode.textContent = "Backend недоступен";
+          setBackendAvailable(false);
         }
       }
 
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
+        if (!backendAvailable) {
+          setBackendAvailable(false);
+          return;
+        }
         const file = input.files[0];
         if (!file) {
           return;
@@ -652,6 +707,28 @@
           button.disabled = false;
         }
       });
+
+      function setBackendAvailable(isAvailable) {
+        backendAvailable = isAvailable;
+        tabButtons.forEach((tabButton) => {
+          tabButton.disabled = !isAvailable;
+          tabButton.setAttribute("aria-disabled", String(!isAvailable));
+        });
+
+        if (isAvailable) {
+          backendUnavailable.hidden = true;
+          selectTab(document.querySelector('.tab-button[aria-selected="true"]')?.dataset.tab || "inference");
+          return;
+        }
+
+        backendUnavailable.hidden = false;
+        inferenceTab.hidden = true;
+        annotationTab.hidden = true;
+        statusNode.classList.remove("ready");
+        statusNode.classList.add("error");
+        statusNode.textContent = "Backend недоступен";
+        button.disabled = true;
+      }
 
       function showPreview(file) {
         const url = URL.createObjectURL(file);

@@ -303,8 +303,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--classification-epochs", type=int, default=60)
     parser.add_argument("--segmentation-patience", type=int, default=12)
     parser.add_argument("--segmentation-min-delta", type=float, default=0.001)
-    parser.add_argument("--classification-patience", type=int, default=12)
-    parser.add_argument("--classification-min-delta", type=float, default=0.001)
+    parser.add_argument("--classification-patience", type=int, default=8)
+    parser.add_argument("--classification-min-delta", type=float, default=0.003)
     parser.add_argument("--save-epoch-checkpoints", action="store_true")
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--patches-per-image", type=int, default=TRAIN_PATCHES_PER_IMAGE)
@@ -826,9 +826,8 @@ def configure_for_segmentation_stage(model: GlobalContextSegformer) -> None:
 def configure_for_classification_stage(model: GlobalContextSegformer) -> None:
     for parameter in model.parameters():
         parameter.requires_grad = False
-    for module in (model.context_adapter, model.classification_head):
-        for parameter in module.parameters():
-            parameter.requires_grad = True
+    for parameter in model.classification_head.parameters():
+        parameter.requires_grad = True
 
 
 def make_optimizer(

@@ -12,6 +12,7 @@ INFERENCE_MODEL_PATH = Path(
     os.getenv("INFERENCE_MODEL_PATH", "/model-artifacts/ml-days-2/global-context-segformer/recommended.pth")
 ).resolve()
 SEGMENTATION_MODEL_PATH = INFERENCE_MODEL_PATH
+ORE_TILE_RATIO_EXCLUSION_FACTOR = float(os.getenv("ORE_TILE_RATIO_EXCLUSION_FACTOR", "10"))
 
 ANNOTATION_DATA_DIR = Path(os.getenv("ANNOTATION_DATA_DIR", "/annotation-data")).resolve()
 ANNOTATION_EDITING_ENABLED = os.getenv("ANNOTATION_EDITING_ENABLED", "false").lower() in {
